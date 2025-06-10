@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Estratégico de Clientes - Malanguísimas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Taro & Coconut -->
+    <!-- Application Structure Plan: The SPA is designed as an interactive dashboard to transform the static report into a dynamic tool. The structure is thematic and task-oriented, not linear. It starts with a high-level "Visión General" with key metrics and a portfolio distribution chart. The core is the "Explorador de Segmentos", which now offers two views: an interactive card grid for segments and a detailed list for individual clients, with added sorting capabilities for the list. This allows users to filter and drill down into segments or view raw client data. This is followed by an interactive "Matriz de Priorización" (Bubble Chart) to visually communicate strategic importance. Finally, "Recomendaciones" are presented in an accordion for easy consumption. A new "Gestión de Entregas y Recordatorios" section is added for operational tracking of deliveries and weekly communication reminders. This structure was chosen to facilitate quick insights, deep exploration, and now, operational tracking, empowering the user to make data-driven decisions and manage daily tasks more effectively. -->
+    <!-- Visualization & Content Choices:
+    1. Report Info: Client distribution by category. -> Goal: Inform. -> Viz: Doughnut Chart. -> Interaction: Tooltips on hover. -> Justification: Provides a quick, easily understandable overview of the portfolio composition. -> Library: Chart.js.
+    2. Report Info: Table 2 (Client Prioritization Matrix). -> Goal: Compare/Organize. -> Viz: Bubble Chart. -> Interaction: Tooltips on hover with detailed data. -> Justification: Visualizes three dimensions (Potential, Brand Alignment, Volume) simultaneously, making complex relationships intuitive and easier to grasp than a static table. -> Library: Chart.js.
+    3. Report Info: Detailed segment analysis. -> Goal: Inform/Explore. -> Presentation: Interactive Cards with Modal/Expandable sections. -> Interaction: Filtering by priority, clicking to view details. -> Justification: Allows users to focus on specific segments without being overwhelmed. The card grid provides a summary, while the modal offers deep-dive information on demand. -> Method: HTML/CSS/JS.
+    4. Report Info: Individual Client List. -> Goal: Inform. -> Presentation: Compact, scrollable list with sorting options. -> Interaction: Basic display, sort by various criteria. -> Justification: Provides a direct, consumable list of all registered clients in a space-efficient and sortable manner for better data management. -> Method: HTML/CSS/JS.
+    5. Report Info: Delivery Log. -> Goal: Track Operations. -> Presentation: Form + List. -> Interaction: Date selection, client selection, add button. -> Justification: Enables simple tracking of client deliveries. -> Method: HTML/CSS/JS.
+    6. Report Info: Weekly Reminders. -> Goal: Manage Communications. -> Presentation: Form + List. -> Interaction: Segment selection, day selection, text input, add button. -> Justification: Helps manage recurring client outreach. -> Method: HTML/CSS/JS.
+    7. Report Info: Recommendations. -> Goal: Inform/Action. -> Presentation: Accordion. -> Interaction: Click to expand/collapse. -> Justification: Organizes actionable advice into clean, thematic sections, preventing a long wall of text and improving readability. -> Method: HTML/CSS/JS.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #FDF8F0;
+            color: #4E443A;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 450px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+                max-height: 450px;
+            }
+        }
+        .bubble-chart-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            max-height: 500px;
+        }
+         @media (min-width: 768px) {
+            .bubble-chart-container {
+                height: 500px;
+            }
+        }
+        .active-filter {
+            background-color: #8D6E63;
+            color: #FFFFFF;
+        }
+        .inactive-filter {
+            background-color: #EFEBE9;
+            color: #795548;
+        }
+        .modal {
+            transition: opacity 0.3s ease;
+        }
+        .modal.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .view-toggle-btn.active {
+            background-color: #8D6E63;
+            color: #FFFFFF;
+        }
+        .view-toggle-btn.inactive {
+            background-color: #EFEBE9;
+            color: #795548;
+        }
+        .individual-client-item {
+            display: flex;
+            flex-direction: column; /* Changed to column for compactness */
+            align-items: flex-start; /* Align text to start */
+            background-color: #ffffff;
+            padding: 0.75rem 1rem; /* Reduced padding */
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        .client-list-container {
+            max-height: 500px; /* Max height for scroll */
+            overflow-y: auto; /* Enable vertical scroll */
+            padding-right: 0.5rem; /* Space for scrollbar */
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <header class="bg-[#8D6E63] text-white shadow-md sticky top-0 z-20">
+        <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold">Malanguísimas</h1>
+            <div class="hidden md:flex space-x-6">
+                <a href="#overview" class="hover:text-[#FFAB91] transition">Visión General</a>
+                <a href="#explorer" class="hover:text-[#FFAB91] transition">Explorador de Clientes</a>
+                <a href="#matrix" class="hover:text-[#FFAB91] transition">Matriz de Priorización</a>
+                <a href="#delivery-reminders" class="hover:text-[#FFAB91] transition">Gestión Operativa</a>
+                <a href="#recommendations" class="hover:text-[#FFAB91] transition">Recomendaciones</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-6 py-12">
+
+        <section id="overview" class="mb-16 scroll-mt-20">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-[#8D6E63] mb-2">Panel Estratégico de Clientes</h2>
+                <p class="text-lg max-w-3xl mx-auto">Una herramienta interactiva para analizar, priorizar y optimizar tu cartera de clientes, transformando datos en decisiones de crecimiento para Malanguísimas.</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8 mb-12">
+                <div class="bg-white p-6 rounded-lg shadow-lg text-center">
+                    <h3 class="text-xl font-semibold mb-2">Total de Clientes Individuales</h3>
+                    <p id="totalClients" class="text-5xl font-bold text-[#8D6E63]">0</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg text-center">
+                    <h3 class="text-xl font-semibold mb-2">Segmentos Analizados</h3>
+                    <p id="totalSegments" class="text-5xl font-bold text-[#8D6E63]">0</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg text-center">
+                    <h3 class="text-xl font-semibold mb-2">Segmentos de Alta Prioridad</h3>
+                    <p id="highPrioritySegments" class="text-5xl font-bold text-[#FFAB91]">0</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 sm:p-8 rounded-lg shadow-lg">
+                 <h3 class="text-2xl font-bold text-center mb-6">Distribución del Portafolio de Clientes por Segmento</h3>
+                 <p class="text-center text-gray-600 mb-6 max-w-2xl mx-auto">Este gráfico muestra la proporción de clientes individuales en cada categoría de negocio. Permite identificar rápidamente cuáles son los segmentos con mayor presencia en tu cartera actual.</p>
+                <div class="chart-container">
+                    <canvas id="portfolioDistributionChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section id="explorer" class="mb-16 scroll-mt-20">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-[#8D6E63] mb-2">Explorador de Clientes</h2>
+                <p class="text-lg max-w-3xl mx-auto">Explora tus clientes por segmentos estratégicos o ve la lista completa de clientes individuales. Añade nuevos clientes para mantener tu cartera actualizada.</p>
+                <button id="add-client-btn" class="mt-6 bg-[#A1887F] text-white px-8 py-3 rounded-full font-semibold hover:bg-[#8D6E63] transition shadow-lg">Añadir Cliente Individual</button>
+            </div>
+            
+            <div class="flex justify-center space-x-2 sm:space-x-4 mb-8">
+                <button id="view-segments-btn" class="view-toggle-btn active px-4 py-2 rounded-full font-semibold transition">Ver por Segmentos</button>
+                <button id="view-individual-clients-btn" class="view-toggle-btn inactive px-4 py-2 rounded-full font-semibold transition">Ver Lista de Clientes</button>
+            </div>
+
+            <!-- Filter buttons for segments view -->
+            <div id="segment-filter-container" class="flex justify-center space-x-2 sm:space-x-4 mb-8">
+                <button class="filter-btn active-filter px-4 py-2 rounded-full font-semibold transition" data-filter="all">Todos</button>
+                <button class="filter-btn inactive-filter px-4 py-2 rounded-full font-semibold transition" data-filter="Alta">Prioridad Alta</button>
+                <button class="filter-btn inactive-filter px-4 py-2 rounded-full font-semibold transition" data-filter="Media">Prioridad Media</button>
+                <button class="filter-btn inactive-filter px-4 py-2 rounded-full font-semibold transition" data-filter="Baja">Prioridad Baja</button>
+                <button class="filter-btn inactive-filter px-4 py-2 rounded-full font-semibold transition" data-filter="Requiere Clarificación">Requiere Clarificación</button>
+            </div>
+
+            <!-- Sorting options for individual client list view -->
+            <div id="sort-options-container" class="hidden justify-center items-center space-x-4 mb-8">
+                <label for="sort-by" class="text-gray-700">Ordenar por:</label>
+                <select id="sort-by" class="border border-gray-300 rounded-md shadow-sm p-2 focus:ring-[#FFAB91] focus:border-[#FFAB91]">
+                    <option value="name">Cliente</option>
+                    <option value="location">Ubicación</option>
+                    <option value="category">Categoría</option>
+                </select>
+                <label for="sort-order" class="text-gray-700">Orden:</label>
+                <select id="sort-order" class="border border-gray-300 rounded-md shadow-sm p-2 focus:ring-[#FFAB91] focus:border-[#FFAB91]">
+                    <option value="asc">Ascendente (A-Z)</option>
+                    <option value="desc">Descendente (Z-A)</option>
+                </select>
+            </div>
+
+            <div id="client-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Segment cards or individual client list will be rendered here -->
+            </div>
+        </section>
+
+        <section id="matrix" class="mb-16 scroll-mt-20">
+            <div class="bg-white p-6 sm:p-8 rounded-lg shadow-lg">
+                <div class="text-center mb-8">
+                    <h2 class="text-4xl font-bold text-[#8D6E63] mb-2">Matriz de Priorización Estratégica</h2>
+                    <p class="text-lg max-w-3xl mx-auto">Esta matriz visualiza los segmentos de clientes según su potencial de ventas y su alineación con la marca Malanguísimas. El tamaño de cada burbuja representa el volumen de **clientes individuales** en ese segmento, ayudándote a identificar rápidamente las oportunidades más estratégicas.</p>
+                </div>
+                <div class="bubble-chart-container">
+                    <canvas id="priorityMatrixChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section id="delivery-reminders" class="mb-16 scroll-mt-20">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-[#8D6E63] mb-2">Gestión de Entregas y Recordatorios</h2>
+                <p class="text-lg max-w-3xl mx-auto">Registra tus entregas a clientes y configura recordatorios semanales para mantener una comunicación efectiva.</p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <!-- Sección de Registro de Entregas -->
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h3 class="text-2xl font-bold text-center mb-6 text-[#A1887F]">Registro de Entregas</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="delivery-client-select" class="block text-sm font-medium text-gray-700 mb-1">Cliente:</label>
+                            <select id="delivery-client-select" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]">
+                                <option value="">Selecciona un cliente</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+                        <div>
+                            <label for="delivery-date" class="block text-sm font-medium text-gray-700 mb-1">Fecha de Entrega:</label>
+                            <input type="date" id="delivery-date" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]">
+                        </div>
+                        <button id="add-delivery-btn" class="w-full bg-[#8D6E63] text-white px-6 py-3 rounded-full font-semibold hover:bg-[#A1887F] transition shadow-md">Registrar Entrega</button>
+                    </div>
+
+                    <div class="mt-8">
+                        <h4 class="text-xl font-semibold mb-4 text-[#795548]">Historial de Entregas</h4>
+                        <ul id="delivery-list" class="space-y-3">
+                            <li class="text-gray-600">No hay entregas registradas aún.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Sección de Recordatorios Semanales -->
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h3 class="text-2xl font-bold text-center mb-6 text-[#A1887F]">Recordatorios Semanales</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="reminder-segment-select" class="block text-sm font-medium text-gray-700 mb-1">Segmento de Cliente:</label>
+                            <select id="reminder-segment-select" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]">
+                                <option value="">Selecciona un segmento</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+                        <div>
+                            <label for="reminder-day" class="block text-sm font-medium text-gray-700 mb-1">Día de la Semana:</label>
+                            <select id="reminder-day" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]">
+                                <option value="">Selecciona un día</option>
+                                <option value="Lunes">Lunes</option>
+                                <option value="Martes">Martes</option>
+                                <option value="Miércoles">Miércoles</option>
+                                <option value="Jueves">Jueves</option>
+                                <option value="Viernes">Viernes</option>
+                                <option value="Sábado">Sábado</option>
+                                <option value="Domingo">Domingo</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="reminder-text" class="block text-sm font-medium text-gray-700 mb-1">Mensaje de Recordatorio:</label>
+                            <textarea id="reminder-text" rows="2" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]" placeholder="Ej: Mandar mensaje de seguimiento o promoción..."></textarea>
+                        </div>
+                        <button id="add-reminder-btn" class="w-full bg-[#8D6E63] text-white px-6 py-3 rounded-full font-semibold hover:bg-[#A1887F] transition shadow-md">Configurar Recordatorio</button>
+                    </div>
+
+                    <div class="mt-8">
+                        <h4 class="text-xl font-semibold mb-4 text-[#795548]">Recordatorios Activos</h4>
+                        <ul id="reminder-list" class="space-y-3">
+                            <li class="text-gray-600">No hay recordatorios configurados aún.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="recommendations" class="scroll-mt-20">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-[#8D6E63] mb-2">Recomendaciones y Próximos Pasos</h2>
+                <p class="text-lg max-w-3xl mx-auto">Acciones clave para implementar esta estrategia, monitorear tu progreso y asegurar el crecimiento sostenible de Malanguísimas.</p>
+            </div>
+            <div id="recommendations-accordion" class="space-y-4 max-w-4xl mx-auto">
+            </div>
+        </section>
+
+    </main>
+    
+    <!-- Modal para detalles del segmento -->
+    <div id="segment-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-30 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
+            <button id="close-segment-modal-btn" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-3xl">&times;</button>
+            <div id="modal-content" class="p-8">
+                <!-- Content injected here by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para añadir cliente individual -->
+    <div id="add-client-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto relative p-8">
+            <button id="close-add-client-modal-btn" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-3xl">&times;</button>
+            <h2 class="text-3xl font-bold text-[#8D6E63] mb-6 text-center">Añadir Nuevo Cliente Individual</h2>
+            <form id="add-client-form" class="grid grid-cols-1 gap-6">
+                <div>
+                    <label for="new-client-name" class="block text-sm font-medium text-gray-700 mb-1">Nombre del Cliente <span class="text-red-500">*</span></label>
+                    <input type="text" id="new-client-name" name="clientName" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]" required>
+                </div>
+                <div>
+                    <label for="new-client-location" class="block text-sm font-medium text-gray-700 mb-1">Ubicación <span class="text-red-500">*</span></label>
+                    <input type="text" id="new-client-location" name="clientLocation" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]" required>
+                </div>
+                <div>
+                    <label for="new-client-category" class="block text-sm font-medium text-gray-700 mb-1">Categoría de Negocio <span class="text-red-500">*</span></label>
+                    <input type="text" id="new-client-category" name="clientCategory" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-3 focus:ring-[#FFAB91] focus:border-[#FFAB91]" required list="category-suggestions">
+                    <datalist id="category-suggestions">
+                        <!-- Options populated by JS -->
+                    </datalist>
+                </div>
+                <div class="col-span-1 flex justify-end space-x-4 mt-4">
+                    <button type="button" id="cancel-add-client-btn" class="px-6 py-2 rounded-full font-semibold text-gray-700 bg-gray-200 hover:bg-[#E0E0E0] transition">Cancelar</button>
+                    <button type="submit" class="px-6 py-2 rounded-full font-semibold bg-[#8D6E63] text-white hover:bg-[#A1887F] transition">Guardar Cliente</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Segment Definitions (strategic data for each category)
+            let segmentDefinitions = [
+                {
+                    id: 1, category: 'Tiendas de Productos Naturales y Gourmet',
+                    priority: 'Alta', priorityLevel: 3, salesPotential: 8, brandAlignment: 9, icon: '🌿',
+                    analysis: 'Se especializan en productos orgánicos, naturales y artesanales. Sus clientes son conscientes de la salud, buscan calidad y están dispuestos a pagar un precio más alto por productos con valor.',
+                    positioning: 'Posicionar como un snack premium, orgánico y exótico. Resaltar los beneficios del taro y el aceite de coco, y la producción artesanal.',
+                    strategy: 'Priorizar una ubicación destacada en estantes. Ofrecer degustaciones en tienda y realizar co-marketing. Comunicar la historia detrás de Malanguísimas para conectar con la filosofía de la tienda.'
+                },
+                {
+                    id: 2, category: 'Gimnasios y Centros de Bienestar',
+                    priority: 'Alta', priorityLevel: 3, salesPotential: 7, brandAlignment: 8, icon: '🏋️',
+                    analysis: 'Atraen a personas enfocadas en salud, rendimiento físico y bienestar. Muchos ofrecen asesoramiento nutricional, creando un público receptivo a snacks saludables.',
+                    positioning: 'Comunicar como un "snack funcional" o un "impulso de energía natural". Enfatizar "grasas saludables del coco", "sin culpa" e ideal para antes o después de entrenar.',
+                    strategy: 'Colocación en mostradores de recepción o máquinas expendedoras. Colaborar con entrenadores o nutricionistas para que recomienden el producto. La información nutricional debe ser clara y visible.'
+                },
+                {
+                    id: 3, category: 'Cafeterías y Establecimientos de Comida',
+                    priority: 'Media', priorityLevel: 2, salesPotential: 6, brandAlignment: 7, icon: '☕',
+                    analysis: 'Son lugares de socialización con una demanda creciente de opciones de comida saludable y de calidad. Los clientes valoran la experiencia y productos novedosos.',
+                    positioning: 'Presentar como un snack gourmet, saludable y distintivo. Perfecto para acompañar un café o como una alternativa a la bollería tradicional.',
+                    strategy: 'Ofrecer como un extra en el mostrador o como acompañamiento en el menú. Proveer muestras al personal para que puedan recomendarlo activamente. Usar exhibidores de marca para aumentar la visibilidad.'
+                },
+                {
+                    id: 4, category: 'Abarrotes',
+                    priority: 'Media', priorityLevel: 2, salesPotential: 9, brandAlignment: 4, icon: '🏪',
+                    analysis: 'Tiendas de barrio con alta rotación y clientela local. La decisión de compra se basa principalmente en el precio, la conveniencia y la confianza en el tendero.',
+                    positioning: 'Accesible, local y una alternativa más saludable a los chips tradicionales. Destacar el "sabor auténtico" o "hecho en Chiapas" para generar conexión local.',
+                    strategy: 'Ofrecer precios competitivos y formatos de menor tamaño. Construir una relación personal sólida con los propietarios, ya que son influenciadores clave en la comunidad. Venta al por mayor con márgenes atractivos.'
+                },
+                {
+                    id: 5, category: 'Centros Infantiles y Recreativos',
+                    priority: 'Media', priorityLevel: 2, salesPotential: 5, brandAlignment: 7, icon: '🧸',
+                    analysis: 'Centros enfocados en el desarrollo infantil, donde los padres buscan activamente opciones de alimentos saludables y naturales para sus hijos.',
+                    positioning: 'Una alternativa de snack saludable, divertido y natural para niños. Enfatizar "sin aditivos", "ingredientes naturales" y como una opción superior a las papas fritas tradicionales.',
+                    strategy: 'Venta directa a los centros para sus programas de snacks. Desarrollar empaques atractivos para niños y porciones controladas que den tranquilidad a los padres.'
+                },
+                 {
+                    id: 6, category: 'Hoteles',
+                    priority: 'Baja', priorityLevel: 1, salesPotential: 4, brandAlignment: 6, icon: '🏨',
+                    analysis: 'Los huéspedes (turistas y viajeros de negocios) buscan conveniencia y a menudo están abiertos a probar productos locales y de calidad premium.',
+                    positioning: 'Un snack único, local y premium para viajeros. Enfatizar el "sabor de Chiapas" y la calidad de los ingredientes.',
+                    strategy: 'Buscar inclusión en minibares, tiendas de regalos del hotel o en el snack bar. El empaque debe ser elegante y en formatos individuales.'
+                },
+                {
+                    id: 7, category: 'Farmacias',
+                    priority: 'Baja', priorityLevel: 1, salesPotential: 3, brandAlignment: 5, icon: '💊',
+                    analysis: 'Aunque su foco son los medicamentos, muchas farmacias han expandido su oferta a productos de bienestar y snacks, capturando compras por impulso.',
+                    positioning: 'Una compra impulsiva saludable en un entorno de bienestar. Una alternativa natural a los snacks convencionales.',
+                    strategy: 'Colocación estratégica en el mostrador de caja. Enfocarse en farmacias que ya tengan una sección de productos naturales o de bienestar.'
+                },
+                {
+                    id: 8, category: 'Otros (Viajes)',
+                    priority: 'Baja', priorityLevel: 1, salesPotential: 2, brandAlignment: 4, icon: '✈️',
+                    analysis: 'Negocios relacionados con el turismo. Los viajeros buscan snacks convenientes, ligeros y fáciles de transportar para sus trayectos.',
+                    positioning: 'El snack de viaje perfecto: conveniente, ligero y distintivo.',
+                    strategy: 'Establecer alianzas con agencias para ofrecer paquetes pequeños a sus clientes o explorar la venta en puntos de conveniencia en aeropuertos.'
+                },
+                 {
+                    id: 9, category: 'Otros (Educación)',
+                    priority: 'Baja', priorityLevel: 1, salesPotential: 2, brandAlignment: 5, icon: '🎓',
+                    analysis: 'Las instituciones educativas con campus físicos suelen tener cafeterías o máquinas expendedoras para estudiantes y personal.',
+                    positioning: 'Un snack saludable y conveniente para una pausa entre clases.',
+                    strategy: 'Requiere clarificación sobre su presencia local. Si existe, contactar directamente con los servicios de alimentación del campus.'
+                },
+                {
+                    id: 10, category: 'Requiere Clarificación',
+                    priority: 'Baja', priorityLevel: 0, salesPotential: 1, brandAlignment: 1, icon: '❓',
+                    analysis: 'La información sobre estos clientes es ambigua o contradictoria. No es posible definir una estrategia clara sin una investigación adicional.',
+                    positioning: 'N/A',
+                    strategy: 'Acción crítica: Contactar directamente para clarificar la naturaleza exacta del negocio y evaluar su verdadero potencial. Hasta entonces, no se deben asignar recursos significativos.'
+                }
+            ];
+
+            // Initial individual clients, extracted and normalized from original data
+            let individualClients = [
+                { id: 1, name: 'Oskandre', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet' },
+                { id: 2, name: 'Amanecer Natural Calza', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet' },
+                { id: 3, name: 'Arbolaria', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet' },
+                { id: 4, name: 'SMART HEALTH', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet' },
+                { id: 5, name: 'EnForme Barre', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar' },
+                { id: 6, name: 'MOA Gym', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar' },
+                { id: 7, name: 'VEGO GYM', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar' },
+                { id: 8, name: 'ITRO GYM', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar' },
+                { id: 9, name: 'GK GYM SPORT', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar' },
+                { id: 10, name: 'Tempo Studio', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar' },
+                { id: 11, name: 'Café New York', location: 'Tuxtla Gutiérrez', category: 'Cafeterías y Establecimientos de Comida' },
+                { id: 12, name: 'Cafetería Tec de Mty', location: 'Tuxtla Gutiérrez', category: 'Cafeterías y Establecimientos de Comida' },
+                { id: 13, name: 'FunCake', location: 'Tuxtla Gutiérrez', category: 'Cafeterías y Establecimientos de Comida' },
+                { id: 14, name: 'Abarrotes "La unión" 1 Y 2', location: 'Tuxtla Gutiérrez', category: 'Abarrotes' },
+                { id: 15, name: 'Abarrotes Laureles', location: 'Tuxtla Gutiérrez', category: 'Abarrotes' },
+                { id: 16, name: 'Abarrotes Rubí', location: 'Tuxtla Gutiérrez', category: 'Abarrotes' },
+                { id: 17, name: 'Abarrotes "Romer"', location: 'Tuxtla Gutiérrez', category: 'Abarrotes' },
+                { id: 18, name: 'KIDS CENTER', location: 'Tuxtla Gutiérrez', category: 'Centros Infantiles y Recreativos' },
+                { id: 19, name: 'Real de Dos', location: 'Tuxtla Gutiérrez', category: 'Hoteles' },
+                { id: 20, name: 'MAXIFARMACIAS', location: 'Tuxtla Gutiérrez', category: 'Farmacias' },
+                { id: 21, name: 'Empaca y vuela', location: 'Tuxtla Gutiérrez', category: 'Otros (Viajes)' },
+                { id: 22, name: 'ASHER-EBC', location: 'Tuxtla Gutiérrez', category: 'Otros (Educación)' },
+                { id: 23, name: 'NOSOTROS', location: 'Tuxtla Gutiérrez', category: 'Requiere Clarificación' },
+                { id: 24, name: 'TIA YUYI', location: 'Tuxtla Gutiérrez', category: 'Requiere Clarificación' }
+            ];
+
+            // New data arrays for deliveries and reminders
+            let deliveries = [];
+            let weeklyReminders = [];
+
+            let nextIndividualClientId = individualClients.length > 0 ? Math.max(...individualClients.map(c => c.id)) + 1 : 1;
+            let nextSegmentDefinitionId = segmentDefinitions.length > 0 ? Math.max(...segmentDefinitions.map(s => s.id)) + 1 : 1;
+
+            const recommendationsData = [
+                {
+                    title: "Enfoque Estratégico",
+                    content: "Prioriza a los clientes que mejor se alinean con la marca Malanguísimas (saludable, natural, gourmet), como tiendas de productos naturales y gimnasios. Concentrar tus recursos en estos segmentos de alta prioridad te permitirá construir una marca fuerte y maximizar los márgenes de beneficio."
+                },
+                {
+                    title: "Adaptabilidad del Producto y Precio",
+                    content: "Ajusta la presentación y el precio a cada canal. Considera empaques más pequeños y precios competitivos para abarrotes, manteniendo un enfoque premium para tiendas gourmet y hoteles. Esta flexibilidad es clave para ser relevante en diversos entornos comerciales."
+                },
+                {
+                    title: "Construcción de Relaciones",
+                    content: "El éxito, especialmente en canales como los abarrotes, depende de la confianza. Invierte tiempo en construir relaciones personales sólidas con los dueños de los negocios. Escucha sus necesidades y pídeles retroalimentación; es invaluable."
+                },
+                {
+                    title: "Decisiones Basadas en Datos",
+                    content: "Monitorea constantemente los datos de ventas por cada segmento. ¿Qué estrategias funcionan mejor? ¿Dónde hay mayor rentabilidad? Usa esta información para refinar tu enfoque y asignar tus recursos de manera más inteligente."
+                },
+                {
+                    title: "Implementación y Monitoreo",
+                    content: "Realiza programas piloto para probar nuevas ideas (empaques, promociones) antes de un lanzamiento a gran escala. Establece un bucle de retroalimentación para escuchar a tus clientes y mantente al día con las tendencias del mercado local en Tuxtla Gutiérrez."
+                },
+                {
+                    title: "Acciones Inmediatas Críticas",
+                    content: "Contacta directamente a los clientes 'NOSOTROS' y 'TIA YUYI' para clarificar su tipo de negocio. Sin esta información, es imposible definir una estrategia. Si se confirma que 'ASHER-EBC' no tiene sede local, debe ser retirado de la lista activa."
+                }
+            ];
+
+            const grid = document.getElementById('client-grid');
+            const segmentModal = document.getElementById('segment-modal');
+            const modalContent = document.getElementById('modal-content');
+            const closeSegmentModalBtn = document.getElementById('close-segment-modal-btn');
+            const filterBtns = document.querySelectorAll('.filter-btn');
+            const segmentFilterContainer = document.getElementById('segment-filter-container');
+
+
+            const addClientBtn = document.getElementById('add-client-btn');
+            const addClientModal = document.getElementById('add-client-modal');
+            const closeAddClientModalBtn = document.getElementById('close-add-client-modal-btn');
+            const cancelAddClientBtn = document.getElementById('cancel-add-client-btn');
+            const addClientForm = document.getElementById('add-client-form');
+
+            const newClientNameInput = document.getElementById('new-client-name');
+            const newClientLocationInput = document.getElementById('new-client-location');
+            const newClientCategoryInput = document.getElementById('new-client-category');
+            const categorySuggestionsDatalist = document.getElementById('category-suggestions');
+
+            const viewSegmentsBtn = document.getElementById('view-segments-btn');
+            const viewIndividualClientsBtn = document.getElementById('view-individual-clients-btn');
+
+            const sortOptionsContainer = document.getElementById('sort-options-container');
+            const sortBySelect = document.getElementById('sort-by');
+            const sortOrderSelect = document.getElementById('sort-order');
+
+            // Delivery & Reminder elements
+            const deliveryClientSelect = document.getElementById('delivery-client-select');
+            const deliveryDateInput = document.getElementById('delivery-date');
+            const addDeliveryBtn = document.getElementById('add-delivery-btn');
+            const deliveryList = document.getElementById('delivery-list');
+
+            const reminderSegmentSelect = document.getElementById('reminder-segment-select');
+            const reminderDaySelect = document.getElementById('reminder-day');
+            const reminderTextInput = document.getElementById('reminder-text');
+            const addReminderBtn = document.getElementById('add-reminder-btn');
+            const reminderList = document.getElementById('reminder-list');
+
+
+            let portfolioChartInstance = null;
+            let matrixChartInstance = null;
+
+            // Helper to get segment definition by category
+            const getSegmentDefinition = (categoryName) => {
+                return segmentDefinitions.find(s => s.category.toLowerCase() === categoryName.toLowerCase());
+            };
+
+            // Function to render segment cards
+            const renderSegmentCards = (data) => {
+                grid.innerHTML = ''; // Clear existing grid
+                grid.classList.remove('flex', 'flex-col', 'space-y-4', 'client-list-container'); // Remove list specific classes
+                grid.classList.add('grid', 'md:grid-cols-2', 'lg:grid-cols-3', 'gap-8'); // Add grid specific classes
+
+                data.forEach(segment => {
+                    const card = document.createElement('div');
+                    card.className = 'client-card bg-white rounded-lg shadow-lg p-6 flex flex-col items-center text-center transition-transform transform hover:scale-105';
+                    card.dataset.priority = segment.priority;
+
+                    let priorityClass = '';
+                    switch(segment.priority) {
+                        case 'Alta': priorityClass = 'bg-green-100 text-green-800'; break;
+                        case 'Media': priorityClass = 'bg-yellow-100 text-yellow-800'; break;
+                        case 'Baja': priorityClass = 'bg-red-100 text-red-800'; break;
+                        default: priorityClass = 'bg-gray-100 text-gray-800'; break;
+                    }
+                    
+                    card.innerHTML = `
+                        <div class="text-5xl mb-4">${segment.icon}</div>
+                        <h3 class="text-xl font-bold mb-2 h-14 flex items-center">${segment.category}</h3>
+                        <span class="px-3 py-1 text-sm font-semibold rounded-full ${priorityClass} mb-4">Prioridad ${segment.priority}</span>
+                        <p class="text-gray-600 flex-grow mb-4">${segment.analysis.substring(0, 100)}...</p>
+                        <button class="view-details-btn bg-[#8D6E63] text-white px-6 py-2 rounded-full font-semibold hover:bg-[#A1887F] transition w-full" data-category="${segment.category}">Ver Detalles</button>
+                    `;
+                    grid.appendChild(card);
+
+                    card.querySelector('.view-details-btn').addEventListener('click', () => showSegmentModal(segment.category));
+                });
+            };
+
+            // Function to render individual client list
+            const renderIndividualClientList = (data, sortBy = 'name', sortOrder = 'asc') => {
+                grid.innerHTML = ''; // Clear existing grid
+                grid.classList.remove('grid', 'md:grid-cols-2', 'lg:grid-cols-3', 'gap-8'); // Remove grid specific classes
+                grid.classList.add('flex', 'flex-col', 'space-y-2', 'client-list-container'); // Add list specific classes, reduced space-y
+
+                if (data.length === 0) {
+                    grid.innerHTML = '<p class="text-center text-gray-600 col-span-full">No hay clientes individuales registrados aún.</p>';
+                    return;
+                }
+
+                // Sort the data
+                const sortedData = [...data].sort((a, b) => {
+                    let valA = a[sortBy].toLowerCase();
+                    let valB = b[sortBy].toLowerCase();
+
+                    if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+                    if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                sortedData.forEach(client => {
+                    const listItem = document.createElement('div');
+                    listItem.className = 'individual-client-item';
+                    listItem.innerHTML = `
+                        <div class="text-left">
+                            <p class="text-base font-semibold text-[#4E443A]">${client.name}</p>
+                            <p class="text-xs text-gray-600">${client.location} - ${client.category}</p>
+                        </div>
+                    `;
+                    grid.appendChild(listItem);
+                });
+            };
+            
+            // Function to show segment details modal
+            const showSegmentModal = (categoryName) => {
+                const segment = getSegmentDefinition(categoryName);
+                if (!segment) return; // Should not happen if data is consistent
+
+                const clientsInSegment = individualClients.filter(c => c.category.toLowerCase() === categoryName.toLowerCase());
+                const clientNames = clientsInSegment.map(c => `${c.name} (${c.location})`).join(', ') || 'No hay clientes individuales registrados en este segmento aún.';
+
+                let priorityClass = '';
+                switch(segment.priority) {
+                    case 'Alta': priorityClass = 'bg-green-100 text-green-800'; break;
+                    case 'Media': priorityClass = 'bg-yellow-100 text-yellow-800'; break;
+                    case 'Baja': priorityClass = 'bg-red-100 text-red-800'; break;
+                    default: priorityClass = 'bg-gray-100 text-gray-800'; break;
+                }
+                
+                modalContent.innerHTML = `
+                    <div class="flex items-start mb-6">
+                        <div class="text-6xl mr-6">${segment.icon}</div>
+                        <div>
+                            <h2 class="text-3xl font-bold text-[#8D6E63]">${segment.category}</h2>
+                            <span class="px-3 py-1 text-sm font-semibold rounded-full ${priorityClass} mt-2 inline-block">Prioridad ${segment.priority}</span>
+                            <p class="text-gray-600 mt-2">Potencial: ${segment.salesPotential}/10, Alineación: ${segment.brandAlignment}/10</p>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-6">
+                        <div>
+                            <h4 class="text-xl font-semibold mb-2 text-[#A1887F]">Análisis del Segmento</h4>
+                            <p>${segment.analysis}</p>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-semibold mb-2 text-[#A1887F]">Posicionamiento Estratégico</h4>
+                            <p>${segment.positioning}</p>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-semibold mb-2 text-[#A1887F]">Estrategia de Venta</h4>
+                            <p>${segment.strategy}</p>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-semibold mb-2 text-[#A1887F]">Clientes Individuales en este Segmento</h4>
+                            <p class="text-gray-600 italic">${clientNames}</p>
+                        </div>
+                    </div>
+                `;
+                segmentModal.classList.add('show');
+            };
+
+            // Function to hide segment details modal
+            const hideSegmentModal = () => {
+                segmentModal.classList.remove('show');
+            };
+
+            // Function to filter segment cards
+            const filterSegments = (filter) => {
+                document.querySelectorAll('.client-card').forEach(card => {
+                    if (filter === 'all' || card.dataset.priority === filter) {
+                        card.style.display = 'flex';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            };
+            
+            // Function to update overview metrics
+            const updateOverviewMetrics = () => {
+                const totalClientsCount = individualClients.length;
+                const totalSegmentsCount = segmentDefinitions.length;
+                const highPrioritySegmentsCount = segmentDefinitions.filter(s => s.priority === 'Alta').length;
+
+                document.getElementById('totalClients').textContent = totalClientsCount;
+                document.getElementById('totalSegments').textContent = totalSegmentsCount;
+                document.getElementById('highPrioritySegments').textContent = highPrioritySegmentsCount;
+            };
+
+            // Function to render portfolio distribution chart
+            const renderPortfolioChart = () => {
+                if (portfolioChartInstance) {
+                    portfolioChartInstance.destroy();
+                }
+
+                const portfolioCtx = document.getElementById('portfolioDistributionChart').getContext('2d');
+                const categoryCounts = individualClients.reduce((acc, curr) => {
+                    const category = curr.category;
+                    if (!acc[category]) {
+                        acc[category] = 0;
+                    }
+                    acc[category]++;
+                    return acc;
+                }, {});
+
+                portfolioChartInstance = new Chart(portfolioCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(categoryCounts),
+                        datasets: [{
+                            label: 'Número de Clientes Individuales',
+                            data: Object.values(categoryCounts),
+                            backgroundColor: [
+                                '#8D6E63', '#A1887F', '#BCAAA4', '#FFAB91',
+                                '#FFCCBC', '#FFE0B2', '#FFD54F', '#A5D6A7', '#81C784',
+                                '#FDD835', '#FFF176', '#BA68C8', '#E1BEE7', '#90CAF9'
+                            ],
+                            borderColor: '#FDF8F0',
+                            borderWidth: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 20,
+                                    font: {
+                                        size: 14
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed !== null) {
+                                            label += context.parsed + ' cliente(s)';
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+            // Function to render priority matrix chart
+            const renderPriorityMatrixChart = () => {
+                if (matrixChartInstance) {
+                    matrixChartInstance.destroy();
+                }
+
+                const matrixCtx = document.getElementById('priorityMatrixChart').getContext('2d');
+                
+                // Calculate volume (count of individual clients) for each segment
+                const segmentVolumes = individualClients.reduce((acc, curr) => {
+                    const category = curr.category;
+                    if (!acc[category]) {
+                        acc[category] = 0;
+                    }
+                    acc[category]++;
+                    return acc;
+                }, {});
+
+                const matrixData = segmentDefinitions.filter(s => s.category !== 'Requiere Clarificación').map(s => ({
+                    x: s.salesPotential,
+                    y: s.brandAlignment,
+                    r: (segmentVolumes[s.category] || 0) * 3 + 5, // Bubble size based on individual client count
+                    label: s.category,
+                    priority: s.priority
+                }));
+                
+                const priorityColors = {
+                    'Alta': 'rgba(76, 175, 80, 0.7)',
+                    'Media': 'rgba(255, 193, 7, 0.7)',
+                    'Baja': 'rgba(244, 67, 54, 0.7)',
+                    'Requiere Clarificación': 'rgba(158, 158, 158, 0.7)'
+                };
+
+                matrixChartInstance = new Chart(matrixCtx, {
+                    type: 'bubble',
+                    data: {
+                        datasets: [{
+                            label: 'Segmentos de Clientes',
+                            data: matrixData,
+                            backgroundColor: matrixData.map(d => priorityColors[d.priority] || 'rgba(158, 158, 158, 0.7)'),
+                            borderColor: matrixData.map(d => d.priority === 'Alta' ? 'rgba(76, 175, 80, 1)' : d.priority === 'Media' ? 'rgba(255, 193, 7, 1)' : d.priority === 'Baja' ? 'rgba(244, 67, 54, 1)' : 'rgba(158, 158, 158, 1)'),
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Alineación con la Marca',
+                                    font: { size: 16 }
+                                },
+                                max: 10
+                            },
+                            x: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Potencial de Ventas',
+                                    font: { size: 16 }
+                                },
+                                max: 10
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const dataPoint = context.raw;
+                                        // Calculate actual volume (number of individual clients) from radius (r)
+                                        const volumeClients = ((dataPoint.r - 5) / 3); 
+                                        return `${dataPoint.label}: Potencial(${dataPoint.x}), Alineación(${dataPoint.y}), Clientes: ${volumeClients.toFixed(0)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+            // Initialize the application UI and data
+            const initializeApp = () => {
+                renderSegmentCards(segmentDefinitions); // Default view
+                updateOverviewMetrics();
+                renderPortfolioChart();
+                renderPriorityMatrixChart();
+                populateCategorySuggestions();
+                populateDeliveryClientSelect();
+                populateReminderSegmentSelect();
+                renderDeliveries();
+                renderReminders();
+            };
+
+            initializeApp();
+
+            // Event Listeners for segment details modal
+            closeSegmentModalBtn.addEventListener('click', hideSegmentModal);
+            segmentModal.addEventListener('click', (e) => {
+                if (e.target === segmentModal) {
+                    hideSegmentModal();
+                }
+            });
+
+            // Event Listeners for filter buttons (only for segment view)
+            filterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    filterBtns.forEach(b => b.classList.replace('active-filter', 'inactive-filter'));
+                    btn.classList.replace('inactive-filter', 'active-filter');
+                    filterSegments(btn.dataset.filter);
+                });
+            });
+
+            // Logic for recommendations accordion
+            const accordionContainer = document.getElementById('recommendations-accordion');
+            recommendationsData.forEach((item) => {
+                const accordionItem = document.createElement('div');
+                accordionItem.className = 'bg-white rounded-lg shadow-lg';
+                accordionItem.innerHTML = `
+                    <button class="w-full flex justify-between items-center text-left p-6 font-semibold text-xl">
+                        <span>${item.title}</span>
+                        <span class="text-2xl transition-transform transform">+</span>
+                    </button>
+                    <div class="overflow-hidden max-h-0 transition-all duration-500 ease-in-out">
+                        <div class="p-6 pt-0 text-gray-700">
+                           ${item.content}
+                        </div>
+                    </div>
+                `;
+                accordionContainer.appendChild(accordionItem);
+
+                const button = accordionItem.querySelector('button');
+                const content = accordionItem.querySelector('div');
+                const icon = accordionItem.querySelector('span:last-child');
+
+                button.addEventListener('click', () => {
+                    const isExpanded = content.style.maxHeight && content.style.maxHeight !== '0px';
+                    if (isExpanded) {
+                        content.style.maxHeight = '0px';
+                        icon.style.transform = 'rotate(0deg)';
+                    } else {
+                        content.style.maxHeight = content.scrollHeight + 'px';
+                        icon.style.transform = 'rotate(45deg)';
+                    }
+                });
+            });
+
+            // Logic for "Add Individual Client" modal
+            addClientBtn.addEventListener('click', () => {
+                addClientModal.classList.add('show');
+            });
+
+            closeAddClientModalBtn.addEventListener('click', () => {
+                addClientModal.classList.remove('show');
+                addClientForm.reset();
+            });
+
+            cancelAddClientBtn.addEventListener('click', () => {
+                addClientModal.classList.remove('show');
+                addClientForm.reset();
+            });
+
+            addClientModal.addEventListener('click', (e) => {
+                if (e.target === addClientModal) {
+                    addClientModal.classList.remove('show');
+                    addClientForm.reset();
+                }
+            });
+
+            // Populate category suggestions for the input field
+            function populateCategorySuggestions() {
+                categorySuggestionsDatalist.innerHTML = '';
+                const uniqueCategories = [...new Set(segmentDefinitions.map(s => s.category))];
+                uniqueCategories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    categorySuggestionsDatalist.appendChild(option);
+                });
+            }
+
+            addClientForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+
+                const clientName = newClientNameInput.value.trim();
+                const clientLocation = newClientLocationInput.value.trim();
+                const clientCategory = newClientCategoryInput.value.trim();
+
+                let existingSegment = getSegmentDefinition(clientCategory);
+
+                if (!existingSegment) {
+                    existingSegment = {
+                        id: nextSegmentDefinitionId++,
+                        category: clientCategory,
+                        priority: 'Requiere Clarificación',
+                        priorityLevel: 0,
+                        salesPotential: 1,
+                        brandAlignment: 1,
+                        icon: '❓',
+                        analysis: 'Este es un nuevo segmento de cliente generado automáticamente. Se recomienda revisar y definir su análisis, posicionamiento y estrategia.',
+                        positioning: 'Aún no definido.',
+                        strategy: 'Aún no definida.'
+                    };
+                    segmentDefinitions.push(existingSegment);
+                    segmentDefinitions.sort((a, b) => b.priorityLevel - a.priorityLevel);
+                }
+
+                individualClients.push({
+                    id: nextIndividualClientId++,
+                    name: clientName,
+                    location: clientLocation,
+                    category: clientCategory
+                });
+
+                // Update UI based on the currently active view
+                if (viewSegmentsBtn.classList.contains('active')) {
+                    renderSegmentCards(segmentDefinitions);
+                    filterSegments(document.querySelector('.filter-btn.active-filter').dataset.filter); // Re-apply current filter
+                } else {
+                    renderIndividualClientList(individualClients, sortBySelect.value, sortOrderSelect.value);
+                }
+                
+                updateOverviewMetrics();
+                renderPortfolioChart();
+                renderPriorityMatrixChart();
+                populateCategorySuggestions(); // Update suggestions in case a new category was added
+                populateDeliveryClientSelect(); // Update delivery client dropdown
+                populateReminderSegmentSelect(); // Update reminder segment dropdown
+
+                addClientModal.classList.remove('show');
+                addClientForm.reset();
+            });
+
+            // View toggle buttons logic
+            viewSegmentsBtn.addEventListener('click', () => {
+                viewSegmentsBtn.classList.replace('inactive', 'active');
+                viewIndividualClientsBtn.classList.replace('active', 'inactive');
+                segmentFilterContainer.style.display = 'flex'; // Show filter buttons
+                sortOptionsContainer.style.display = 'none'; // Hide sort options
+                renderSegmentCards(segmentDefinitions);
+                filterSegments(document.querySelector('.filter-btn.active-filter').dataset.filter); // Apply filter after rendering
+            });
+
+            viewIndividualClientsBtn.addEventListener('click', () => {
+                viewIndividualClientsBtn.classList.replace('inactive', 'active');
+                viewSegmentsBtn.classList.replace('active', 'inactive');
+                segmentFilterContainer.style.display = 'none'; // Hide filter buttons
+                sortOptionsContainer.style.display = 'flex'; // Show sort options
+                renderIndividualClientList(individualClients, sortBySelect.value, sortOrderSelect.value);
+            });
+
+            // Sorting logic for individual client list
+            sortBySelect.addEventListener('change', () => {
+                renderIndividualClientList(individualClients, sortBySelect.value, sortOrderSelect.value);
+            });
+
+            sortOrderSelect.addEventListener('change', () => {
+                renderIndividualClientList(individualClients, sortBySelect.value, sortOrderSelect.value);
+            });
+
+
+            // Delivery & Reminder Logic
+            function populateDeliveryClientSelect() {
+                deliveryClientSelect.innerHTML = '<option value="">Selecciona un cliente</option>';
+                // Sort clients by name for easier selection
+                const sortedClients = [...individualClients].sort((a, b) => a.name.localeCompare(b.name));
+                sortedClients.forEach(client => {
+                    const option = document.createElement('option');
+                    option.value = client.id;
+                    option.textContent = `${client.name} (${client.category})`;
+                    deliveryClientSelect.appendChild(option);
+                });
+            }
+
+            function renderDeliveries() {
+                deliveryList.innerHTML = '';
+                if (deliveries.length === 0) {
+                    deliveryList.innerHTML = '<li class="text-gray-600">No hay entregas registradas aún.</li>';
+                    return;
+                }
+                // Sort deliveries by date (newest first)
+                const sortedDeliveries = [...deliveries].sort((a, b) => new Date(b.date) - new Date(a.date));
+                sortedDeliveries.forEach(delivery => {
+                    const li = document.createElement('li');
+                    li.className = 'bg-gray-50 p-3 rounded-md shadow-sm border border-gray-200';
+                    li.textContent = `${delivery.clientName} - ${delivery.date}`;
+                    deliveryList.appendChild(li);
+                });
+            }
+
+            addDeliveryBtn.addEventListener('click', () => {
+                const clientId = deliveryClientSelect.value;
+                const deliveryDate = deliveryDateInput.value;
+
+                if (!clientId || !deliveryDate) {
+                    alert('Por favor, selecciona un cliente y una fecha para registrar la entrega.');
+                    return;
+                }
+
+                const client = individualClients.find(c => c.id == clientId);
+                if (client) {
+                    deliveries.push({
+                        clientId: client.id,
+                        clientName: client.name,
+                        date: deliveryDate
+                    });
+                    renderDeliveries();
+                    deliveryClientSelect.value = '';
+                    deliveryDateInput.value = '';
+                }
+            });
+
+            function populateReminderSegmentSelect() {
+                reminderSegmentSelect.innerHTML = '<option value="">Selecciona un segmento</option>';
+                // Sort segments by category name
+                const sortedSegments = [...segmentDefinitions].sort((a, b) => a.category.localeCompare(b.category));
+                sortedSegments.forEach(segment => {
+                    const option = document.createElement('option');
+                    option.value = segment.id;
+                    option.textContent = segment.category;
+                    reminderSegmentSelect.appendChild(option);
+                });
+            }
+
+            function renderReminders() {
+                reminderList.innerHTML = '';
+                if (weeklyReminders.length === 0) {
+                    reminderList.innerHTML = '<li class="text-gray-600">No hay recordatorios configurados aún.</li>';
+                    return;
+                }
+                // Sort reminders by day of the week (e.g., Monday-Sunday)
+                const dayOrder = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+                const sortedReminders = [...weeklyReminders].sort((a, b) => {
+                    const dayA = dayOrder.indexOf(a.day);
+                    const dayB = dayOrder.indexOf(b.day);
+                    if (dayA === dayB) {
+                        return a.segmentCategory.localeCompare(b.segmentCategory);
+                    }
+                    return dayA - dayB;
+                });
+
+                sortedReminders.forEach(reminder => {
+                    const li = document.createElement('li');
+                    li.className = 'bg-gray-50 p-3 rounded-md shadow-sm border border-gray-200';
+                    li.textContent = `Cada ${reminder.day} para ${reminder.segmentCategory}: "${reminder.text}"`;
+                    reminderList.appendChild(li);
+                });
+            }
+
+            addReminderBtn.addEventListener('click', () => {
+                const segmentId = reminderSegmentSelect.value;
+                const reminderDay = reminderDaySelect.value;
+                const reminderText = reminderTextInput.value.trim();
+
+                if (!segmentId || !reminderDay || !reminderText) {
+                    alert('Por favor, completa todos los campos para configurar el recordatorio.');
+                    return;
+                }
+
+                const segment = segmentDefinitions.find(s => s.id == segmentId);
+                if (segment) {
+                    weeklyReminders.push({
+                        segmentId: segment.id,
+                        segmentCategory: segment.category,
+                        day: reminderDay,
+                        text: reminderText
+                    });
+                    renderReminders();
+                    reminderSegmentSelect.value = '';
+                    reminderDaySelect.value = '';
+                    reminderTextInput.value = '';
+                }
+            });
+
+        });
+    </script>
+</body>
+</html>
