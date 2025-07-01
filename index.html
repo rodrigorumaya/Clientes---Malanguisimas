@@ -686,6 +686,12 @@
                     </div>
                     
                     <span class="text-sm">Última actualización: <span id="last-update">Hoy</span></span>
+                    
+                    <!-- Botón de diagnóstico Firebase -->
+                    <button id="firebase-test-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2 text-sm">
+                        🔧 Probar Firebase
+                    </button>
+                    
                     <button id="mobile-menu-btn" class="md:hidden text-white">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
@@ -1434,6 +1440,15 @@
         function initializeFirebase() {
             updateDiagnostic('Iniciando conexión con Firebase...', 'info');
             
+            // Verificar que Firebase esté cargado
+            if (typeof firebase === 'undefined') {
+                console.error('❌ Firebase SDK no está cargado');
+                updateDiagnostic('Firebase SDK no está cargado - verifica la conexión a internet', 'error');
+                showNotification('❌ Error: No se pudo cargar Firebase. Verifica tu conexión a internet.', 'error');
+                enableOfflineMode();
+                return;
+            }
+            
             try {
                 // Verificar si Firebase ya está inicializado
                 if (firebase.apps.length > 0) {
@@ -1447,7 +1462,7 @@
                 database = firebase.database();
                 auth = firebase.auth();
                 
-                // Habilitar persistencia offline
+                // Habilitar persistencia offline (para caché temporal)
                 database.goOffline();
                 database.goOnline();
                 
@@ -1457,8 +1472,23 @@
             } catch (error) {
                 console.error('Error al inicializar Firebase:', error);
                 updateDiagnostic(`Error de inicialización: ${error.message}`, 'error');
-                showNotification('Error al conectar con Firebase. Trabajando en modo offline.', 'error');
-                enableOfflineMode();
+                
+                if (error.code === 'app/duplicate-app') {
+                    // Si la app ya existe, intentar usarla
+                    try {
+                        firebaseApp = firebase.app();
+                        database = firebase.database();
+                        auth = firebase.auth();
+                        authenticateUser();
+                    } catch (secondError) {
+                        console.error('Error al recuperar app existente:', secondError);
+                        showNotification('❌ Error crítico con Firebase. La aplicación no funcionará correctamente.', 'error');
+                        enableOfflineMode();
+                    }
+                } else {
+                    showNotification('❌ Error al conectar con Firebase. La aplicación funcionará sin sincronización.', 'error');
+                    enableOfflineMode();
+                }
             }
         }
         
@@ -1485,7 +1515,7 @@
                         updateDiagnostic(`Reintentando autenticación (intento ${connectionAttempts + 1}/3)...`, 'warning');
                         setTimeout(authenticateUser, 3000);
                     } else {
-                        showNotification('No se pudo conectar con Firebase. Trabajando en modo offline.', 'error');
+                        showNotification('❌ No se pudo conectar con Firebase. La aplicación no funcionará correctamente para múltiples usuarios.', 'error');
                         enableOfflineMode();
                     }
                 });
@@ -1513,21 +1543,40 @@
                         
                         // Todo funcionando, configurar sincronización
                         setupRealtimeSync();
-                        showNotification('✅ Conectado a Firebase - Sincronización habilitada', 'success');
+                        showNotification('✅ Conectado a Firebase - Todos los usuarios verán los mismos datos', 'success');
                         updateSyncStatus('synced');
+                        
+                        // Ocultar el panel de diagnóstico después de 5 segundos si todo está bien
+                        if (isDevelopment) {
+                            setTimeout(() => {
+                                const diagnosticPanel = document.getElementById('firebase-diagnostic');
+                                if (diagnosticPanel.classList.contains('success')) {
+                                    diagnosticPanel.style.display = 'none';
+                                }
+                            }, 5000);
+                        }
                     })
                     .catch(error => {
                         updateDiagnostic(`Error de escritura: ${error.message}`, 'error');
-                        showNotification('⚠️ Conectado pero sin permisos de escritura. Verifica las reglas de Firebase.', 'warning');
-                        updateSyncStatus('offline');
                         
-                        // Mostrar instrucciones para arreglar las reglas
-                        showFirebaseRulesHelp();
+                        if (error.code === 'PERMISSION_DENIED') {
+                            showNotification('⚠️ Firebase conectado pero sin permisos de escritura. Los cambios no se guardarán.', 'error');
+                            updateSyncStatus('offline');
+                            
+                            // Mostrar instrucciones para arreglar las reglas
+                            showFirebaseRulesHelp();
+                            
+                            // Intentar al menos leer datos
+                            setupRealtimeSync();
+                        } else {
+                            showNotification('Error al acceder a Firebase: ' + error.message, 'error');
+                            enableOfflineMode();
+                        }
                     });
                 })
                 .catch(error => {
                     updateDiagnostic(`Error de lectura: ${error.message}`, 'error');
-                    showNotification('Error al acceder a la base de datos. Verifica tu configuración.', 'error');
+                    showNotification('❌ Error al acceder a la base de datos. Verifica tu configuración.', 'error');
                     enableOfflineMode();
                 });
         }
@@ -1536,31 +1585,46 @@
         function showFirebaseRulesHelp() {
             const helpMessage = `
                 <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <h4 class="font-bold text-yellow-800 mb-2">⚠️ Acción Requerida: Configurar Reglas de Firebase</h4>
-                    <p class="text-sm text-yellow-700 mb-2">Para habilitar la sincronización, actualiza las reglas en tu consola de Firebase:</p>
+                    <h4 class="font-bold text-yellow-800 mb-2">⚠️ Configuración de Firebase Requerida</h4>
+                    <p class="text-sm text-yellow-700 mb-2">Para que múltiples usuarios puedan usar esta aplicación, debes configurar las reglas de Firebase:</p>
                     <ol class="list-decimal list-inside text-sm text-yellow-700 space-y-1">
-                        <li>Ve a <a href="https://console.firebase.google.com" target="_blank" class="underline">console.firebase.google.com</a></li>
-                        <li>Selecciona tu proyecto: malanguisimas-clientes</li>
-                        <li>Ve a Realtime Database → Reglas</li>
-                        <li>Reemplaza las reglas con:
-                            <pre class="bg-gray-800 text-gray-100 p-2 rounded mt-1 text-xs">{
+                        <li>Ve a <a href="https://console.firebase.google.com" target="_blank" class="underline font-semibold">console.firebase.google.com</a></li>
+                        <li>Selecciona tu proyecto: <strong>malanguisimas-clientes</strong></li>
+                        <li>En el menú lateral, ve a <strong>Realtime Database</strong></li>
+                        <li>Haz clic en la pestaña <strong>Reglas</strong></li>
+                        <li>Reemplaza TODO el contenido con estas reglas:
+                            <pre class="bg-gray-800 text-gray-100 p-3 rounded mt-2 text-xs overflow-x-auto">{
   "rules": {
     ".read": true,
     ".write": true
   }
 }</pre>
                         </li>
-                        <li>Haz clic en "Publicar"</li>
-                        <li>Recarga esta página</li>
+                        <li>Haz clic en <strong>"Publicar"</strong></li>
+                        <li><strong>Recarga esta página</strong> (F5 o Ctrl+R)</li>
                     </ol>
+                    <div class="mt-3 p-2 bg-blue-50 rounded">
+                        <p class="text-xs text-blue-700">💡 <strong>Nota:</strong> Estas reglas permiten acceso público. Para producción, implementa autenticación y reglas más seguras.</p>
+                    </div>
                 </div>
             `;
             
             // Crear notificación persistente
             const container = document.getElementById('notification-container');
+            const existingHelp = container.querySelector('.firebase-rules-help');
+            if (existingHelp) {
+                existingHelp.remove();
+            }
+            
             const notification = document.createElement('div');
-            notification.className = 'notification warning p-4 rounded-lg';
-            notification.innerHTML = helpMessage;
+            notification.className = 'notification warning p-4 rounded-lg firebase-rules-help';
+            notification.style.maxWidth = '600px';
+            notification.style.animation = 'none'; // No animar la salida
+            notification.innerHTML = helpMessage + `
+                <button onclick="this.parentElement.remove()" class="mt-3 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition text-sm">
+                    Entendido
+                </button>
+            `;
             container.appendChild(notification);
         }
         
@@ -1568,10 +1632,13 @@
         function enableOfflineMode() {
             isOfflineMode = true;
             updateSyncStatus('offline');
-            updateDiagnostic('Modo offline activado', 'warning');
+            updateDiagnostic('Modo offline activado - Sin sincronización multiusuario', 'warning');
             
-            // Cargar datos locales
-            loadLocalData();
+            showNotification(`
+                ⚠️ Trabajando sin conexión a Firebase.
+                Los cambios NO se compartirán con otros usuarios.
+                Usa el botón "🔧 Probar Firebase" para diagnosticar el problema.
+            `, 'warning');
         }
         
         // ==========================================
@@ -1619,7 +1686,8 @@
                             segmentDefinitions = Object.values(data);
                             nextSegmentDefinitionId = Math.max(...segmentDefinitions.map(s => s.id || 0)) + 1;
                             
-                            updateDiagnostic(`Segmentos sincronizados: ${segmentDefinitions.length}`, 'success');
+                            updateDiagnostic(`Segmentos sincronizados desde Firebase: ${segmentDefinitions.length}`, 'success');
+                            console.log(`✅ ${segmentDefinitions.length} segmentos sincronizados`);
                             
                             // Actualizar UI
                             if (document.querySelector('[data-tab="clients"]').classList.contains('active')) {
@@ -1653,7 +1721,8 @@
                             individualClients = Object.values(data);
                             nextIndividualClientId = Math.max(...individualClients.map(c => c.id || 0)) + 1;
                             
-                            updateDiagnostic(`Clientes sincronizados: ${individualClients.length}`, 'success');
+                            updateDiagnostic(`Clientes sincronizados desde Firebase: ${individualClients.length}`, 'success');
+                            console.log(`✅ ${individualClients.length} clientes sincronizados`);
                             
                             // Actualizar UI
                             if (document.querySelector('[data-tab="clients"]').classList.contains('active')) {
@@ -1699,7 +1768,10 @@
                         if (data) {
                             sales = Object.values(data);
                             nextSaleId = Math.max(...sales.map(s => s.id || 0)) + 1;
-                            updateDiagnostic(`Ventas sincronizadas: ${sales.length}`, 'success');
+                            
+                            updateDiagnostic(`Ventas sincronizadas desde Firebase: ${sales.length}`, 'success');
+                            console.log(`✅ ${sales.length} ventas sincronizadas`);
+                            
                             renderSales();
                             updateDashboard();
                             renderSalesBySegmentChart();
@@ -1726,7 +1798,10 @@
                         if (data) {
                             deliveries = Object.values(data);
                             nextDeliveryId = Math.max(...deliveries.map(d => d.id || 0)) + 1;
-                            updateDiagnostic(`Entregas sincronizadas: ${deliveries.length}`, 'success');
+                            
+                            updateDiagnostic(`Entregas sincronizadas desde Firebase: ${deliveries.length}`, 'success');
+                            console.log(`✅ ${deliveries.length} entregas sincronizadas`);
+                            
                             renderDeliveries();
                             updateDashboard();
                         }
@@ -1747,7 +1822,10 @@
                         if (data) {
                             weeklyReminders = Object.values(data);
                             nextReminderId = Math.max(...weeklyReminders.map(r => r.id || 0)) + 1;
-                            updateDiagnostic(`Recordatorios sincronizados: ${weeklyReminders.length}`, 'success');
+                            
+                            updateDiagnostic(`Recordatorios sincronizados desde Firebase: ${weeklyReminders.length}`, 'success');
+                            console.log(`✅ ${weeklyReminders.length} recordatorios sincronizados`);
+                            
                             renderReminders();
                         }
                     } catch (error) {
@@ -1767,7 +1845,9 @@
                         if (data) {
                             interactions = Object.values(data);
                             nextInteractionId = Math.max(...interactions.map(i => i.id || 0)) + 1;
-                            updateDiagnostic(`Interacciones sincronizadas: ${interactions.length}`, 'success');
+                            
+                            updateDiagnostic(`Interacciones sincronizadas desde Firebase: ${interactions.length}`, 'success');
+                            console.log(`✅ ${interactions.length} interacciones sincronizadas`);
                             
                             // Actualizar timeline si está visible
                             const selectedClientId = crmClientSelect.value;
@@ -1836,118 +1916,137 @@
         }
         
         // ==========================================
-        // FUNCIONES DE GUARDADO CON REINTENTOS
+        // FUNCIONES DE GUARDADO PARA MULTIUSUARIO
         // ==========================================
         
-        // Función para guardar datos en Firebase con reintentos
+        // Función para guardar datos en Firebase (multiusuario)
         function saveToFirebase(collection, data, retries = 3) {
-            if (database && !isOfflineMode) {
-                updateSyncStatus('syncing');
-                updateDiagnostic(`Guardando ${collection}/${data.id}...`, 'info');
-                
-                database.ref(`${collection}/${data.id}`).set(data)
-                    .then(() => {
-                        updateSyncStatus('synced');
-                        updateDiagnostic(`${collection}/${data.id} guardado exitosamente`, 'success');
-                        
-                        // Guardar también localmente como respaldo
-                        saveData(collection, data);
-                    })
-                    .catch(error => {
-                        console.error('Error al guardar en Firebase:', error);
-                        updateDiagnostic(`Error guardando ${collection}/${data.id}: ${error.message}`, 'error');
-                        
-                        if (retries > 0) {
-                            updateDiagnostic(`Reintentando guardar ${collection}/${data.id} (${retries} intentos restantes)...`, 'warning');
-                            setTimeout(() => {
-                                saveToFirebase(collection, data, retries - 1);
-                            }, 1000);
-                        } else {
-                            updateSyncStatus('offline');
-                            showNotification('No se pudo guardar en la nube. Guardado localmente.', 'warning');
-                            // Guardar localmente como fallback
-                            saveData(collection, data);
-                        }
-                    });
-            } else {
-                // Modo offline - guardar solo localmente
-                saveData(collection, data);
-                showNotification('Guardado localmente (sin conexión)', 'info');
+            if (!database) {
+                showNotification('❌ Error: Firebase no está configurado. Los datos no se pueden guardar.', 'error');
+                updateDiagnostic('Firebase no disponible - imposible guardar', 'error');
+                return;
             }
+            
+            if (isOfflineMode) {
+                showNotification('⚠️ Sin conexión a internet. Los cambios no se guardarán.', 'warning');
+                return;
+            }
+            
+            updateSyncStatus('syncing');
+            updateDiagnostic(`Guardando ${collection}/${data.id} en Firebase...`, 'info');
+            
+            database.ref(`${collection}/${data.id}`).set(data)
+                .then(() => {
+                    updateSyncStatus('synced');
+                    updateDiagnostic(`${collection}/${data.id} guardado exitosamente`, 'success');
+                    
+                    // Guardar en caché local solo como respaldo
+                    saveToLocalCache(collection, data);
+                })
+                .catch(error => {
+                    console.error('Error al guardar en Firebase:', error);
+                    updateDiagnostic(`Error guardando ${collection}/${data.id}: ${error.message}`, 'error');
+                    
+                    if (error.code === 'PERMISSION_DENIED') {
+                        showNotification('❌ Error: No tienes permisos para guardar. Verifica las reglas de Firebase.', 'error');
+                        showFirebaseRulesHelp();
+                        return;
+                    }
+                    
+                    if (retries > 0) {
+                        updateDiagnostic(`Reintentando guardar ${collection}/${data.id} (${retries} intentos restantes)...`, 'warning');
+                        setTimeout(() => {
+                            saveToFirebase(collection, data, retries - 1);
+                        }, 1000);
+                    } else {
+                        updateSyncStatus('offline');
+                        showNotification('❌ No se pudo guardar. Verifica tu conexión y las reglas de Firebase.', 'error');
+                    }
+                });
         }
         
-        // Función para actualizar datos en Firebase con reintentos
+        // Función para actualizar datos en Firebase (multiusuario)
         function updateInFirebase(collection, id, data, retries = 3) {
-            if (database && !isOfflineMode) {
-                updateSyncStatus('syncing');
-                updateDiagnostic(`Actualizando ${collection}/${id}...`, 'info');
-                
-                database.ref(`${collection}/${id}`).update(data)
-                    .then(() => {
-                        updateSyncStatus('synced');
-                        updateDiagnostic(`${collection}/${id} actualizado exitosamente`, 'success');
-                        
-                        // Actualizar también localmente
-                        updateData(collection, id, data);
-                    })
-                    .catch(error => {
-                        console.error('Error al actualizar en Firebase:', error);
-                        updateDiagnostic(`Error actualizando ${collection}/${id}: ${error.message}`, 'error');
-                        
-                        if (retries > 0) {
-                            updateDiagnostic(`Reintentando actualizar ${collection}/${id} (${retries} intentos restantes)...`, 'warning');
-                            setTimeout(() => {
-                                updateInFirebase(collection, id, data, retries - 1);
-                            }, 1000);
-                        } else {
-                            updateSyncStatus('offline');
-                            showNotification('No se pudo actualizar en la nube. Actualizado localmente.', 'warning');
-                            // Actualizar localmente como fallback
-                            updateData(collection, id, data);
-                        }
-                    });
-            } else {
-                // Modo offline - actualizar solo localmente
-                updateData(collection, id, data);
-                showNotification('Actualizado localmente (sin conexión)', 'info');
+            if (!database) {
+                showNotification('❌ Error: Firebase no está configurado. Los cambios no se pueden guardar.', 'error');
+                return;
             }
+            
+            if (isOfflineMode) {
+                showNotification('⚠️ Sin conexión a internet. Los cambios no se guardarán.', 'warning');
+                return;
+            }
+            
+            updateSyncStatus('syncing');
+            updateDiagnostic(`Actualizando ${collection}/${id} en Firebase...`, 'info');
+            
+            database.ref(`${collection}/${id}`).update(data)
+                .then(() => {
+                    updateSyncStatus('synced');
+                    updateDiagnostic(`${collection}/${id} actualizado exitosamente`, 'success');
+                })
+                .catch(error => {
+                    console.error('Error al actualizar en Firebase:', error);
+                    updateDiagnostic(`Error actualizando ${collection}/${id}: ${error.message}`, 'error');
+                    
+                    if (error.code === 'PERMISSION_DENIED') {
+                        showNotification('❌ Error: No tienes permisos para actualizar. Verifica las reglas de Firebase.', 'error');
+                        showFirebaseRulesHelp();
+                        return;
+                    }
+                    
+                    if (retries > 0) {
+                        updateDiagnostic(`Reintentando actualizar ${collection}/${id} (${retries} intentos restantes)...`, 'warning');
+                        setTimeout(() => {
+                            updateInFirebase(collection, id, data, retries - 1);
+                        }, 1000);
+                    } else {
+                        updateSyncStatus('offline');
+                        showNotification('❌ No se pudo actualizar. Verifica tu conexión y las reglas de Firebase.', 'error');
+                    }
+                });
         }
         
-        // Función para eliminar datos de Firebase con reintentos
+        // Función para eliminar datos de Firebase (multiusuario)
         function deleteFromFirebase(collection, id, retries = 3) {
-            if (database && !isOfflineMode) {
-                updateSyncStatus('syncing');
-                updateDiagnostic(`Eliminando ${collection}/${id}...`, 'info');
-                
-                database.ref(`${collection}/${id}`).remove()
-                    .then(() => {
-                        updateSyncStatus('synced');
-                        updateDiagnostic(`${collection}/${id} eliminado exitosamente`, 'success');
-                        
-                        // Eliminar también localmente
-                        deleteData(collection, id);
-                    })
-                    .catch(error => {
-                        console.error('Error al eliminar de Firebase:', error);
-                        updateDiagnostic(`Error eliminando ${collection}/${id}: ${error.message}`, 'error');
-                        
-                        if (retries > 0) {
-                            updateDiagnostic(`Reintentando eliminar ${collection}/${id} (${retries} intentos restantes)...`, 'warning');
-                            setTimeout(() => {
-                                deleteFromFirebase(collection, id, retries - 1);
-                            }, 1000);
-                        } else {
-                            updateSyncStatus('offline');
-                            showNotification('No se pudo eliminar de la nube. Eliminado localmente.', 'warning');
-                            // Eliminar localmente como fallback
-                            deleteData(collection, id);
-                        }
-                    });
-            } else {
-                // Modo offline - eliminar solo localmente
-                deleteData(collection, id);
-                showNotification('Eliminado localmente (sin conexión)', 'info');
+            if (!database) {
+                showNotification('❌ Error: Firebase no está configurado. No se puede eliminar.', 'error');
+                return;
             }
+            
+            if (isOfflineMode) {
+                showNotification('⚠️ Sin conexión a internet. La eliminación no se completará.', 'warning');
+                return;
+            }
+            
+            updateSyncStatus('syncing');
+            updateDiagnostic(`Eliminando ${collection}/${id} de Firebase...`, 'info');
+            
+            database.ref(`${collection}/${id}`).remove()
+                .then(() => {
+                    updateSyncStatus('synced');
+                    updateDiagnostic(`${collection}/${id} eliminado exitosamente`, 'success');
+                })
+                .catch(error => {
+                    console.error('Error al eliminar de Firebase:', error);
+                    updateDiagnostic(`Error eliminando ${collection}/${id}: ${error.message}`, 'error');
+                    
+                    if (error.code === 'PERMISSION_DENIED') {
+                        showNotification('❌ Error: No tienes permisos para eliminar. Verifica las reglas de Firebase.', 'error');
+                        showFirebaseRulesHelp();
+                        return;
+                    }
+                    
+                    if (retries > 0) {
+                        updateDiagnostic(`Reintentando eliminar ${collection}/${id} (${retries} intentos restantes)...`, 'warning');
+                        setTimeout(() => {
+                            deleteFromFirebase(collection, id, retries - 1);
+                        }, 1000);
+                    } else {
+                        updateSyncStatus('offline');
+                        showNotification('❌ No se pudo eliminar. Verifica tu conexión y las reglas de Firebase.', 'error');
+                    }
+                });
         }
         
         // Función para actualizar estado de sincronización
@@ -1974,105 +2073,42 @@
         // FUNCIONES DE PERSISTENCIA DE DATOS (LOCAL)
         // ==========================================
         
-        function saveData(collection, data) {
+        // IMPORTANTE: localStorage es solo para caché temporal, NO para persistencia principal
+        
+        function saveToLocalCache(collection, data) {
             try {
-                let localData = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
-                
-                // Verificar si el elemento ya existe
+                // Solo guardar en caché local como respaldo temporal
+                let localData = JSON.parse(localStorage.getItem(`malanguisimas_cache_${collection}`) || '[]');
                 const existingIndex = localData.findIndex(item => item.id === data.id);
                 if (existingIndex !== -1) {
-                    // Actualizar si existe
                     localData[existingIndex] = data;
                 } else {
-                    // Agregar si es nuevo
                     localData.push(data);
                 }
-                
-                localStorage.setItem(`malanguisimas_${collection}`, JSON.stringify(localData));
-                updateDiagnostic(`Guardado localmente: ${collection}/${data.id}`, 'info');
+                localStorage.setItem(`malanguisimas_cache_${collection}`, JSON.stringify(localData));
+                return true;
             } catch (error) {
-                console.error('Error al guardar datos localmente:', error);
-                updateDiagnostic(`Error guardando localmente: ${error.message}`, 'error');
+                console.error('Error al guardar en caché local:', error);
+                return false;
             }
         }
 
-        function loadData(collection) {
+        function loadFromLocalCache(collection) {
             try {
-                const data = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
-                updateDiagnostic(`Cargados ${data.length} elementos de ${collection} desde almacenamiento local`, 'info');
+                const data = JSON.parse(localStorage.getItem(`malanguisimas_cache_${collection}`) || '[]');
+                console.log(`Cargados ${data.length} elementos de ${collection} desde caché local`);
                 return data;
             } catch (error) {
-                console.error('Error al cargar datos locales:', error);
-                updateDiagnostic(`Error cargando datos locales: ${error.message}`, 'error');
+                console.error('Error al cargar caché local:', error);
                 return [];
             }
         }
 
-        function updateData(collection, id, data) {
-            try {
-                const localData = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
-                const index = localData.findIndex(item => item.id === id);
-                if (index !== -1) {
-                    localData[index] = { ...localData[index], ...data };
-                    localStorage.setItem(`malanguisimas_${collection}`, JSON.stringify(localData));
-                    updateDiagnostic(`Actualizado localmente: ${collection}/${id}`, 'info');
-                }
-            } catch (error) {
-                console.error('Error al actualizar datos localmente:', error);
-                updateDiagnostic(`Error actualizando localmente: ${error.message}`, 'error');
-            }
-        }
-
-        function deleteData(collection, id) {
-            try {
-                const localData = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
-                const filteredData = localData.filter(item => item.id !== id);
-                localStorage.setItem(`malanguisimas_${collection}`, JSON.stringify(filteredData));
-                updateDiagnostic(`Eliminado localmente: ${collection}/${id}`, 'info');
-            } catch (error) {
-                console.error('Error al eliminar datos localmente:', error);
-                updateDiagnostic(`Error eliminando localmente: ${error.message}`, 'error');
-            }
-        }
-
-        // Función para cargar todos los datos locales
-        function loadLocalData() {
-            updateDiagnostic('Cargando datos desde almacenamiento local...', 'info');
-            
-            // Cargar datos guardados localmente
-            const savedClients = loadData('clients');
-            const savedSales = loadData('sales');
-            const savedDeliveries = loadData('deliveries');
-            const savedReminders = loadData('reminders');
-            const savedInteractions = loadData('interactions');
-            const savedSegments = loadData('segments');
-            
-            if (savedClients.length > 0) {
-                individualClients = savedClients;
-                nextIndividualClientId = Math.max(...individualClients.map(c => c.id)) + 1;
-            }
-            if (savedSales.length > 0) {
-                sales = savedSales;
-                nextSaleId = Math.max(...sales.map(s => s.id)) + 1;
-            }
-            if (savedDeliveries.length > 0) {
-                deliveries = savedDeliveries;
-                nextDeliveryId = Math.max(...deliveries.map(d => d.id)) + 1;
-            }
-            if (savedReminders.length > 0) {
-                weeklyReminders = savedReminders;
-                nextReminderId = Math.max(...weeklyReminders.map(r => r.id)) + 1;
-            }
-            if (savedInteractions.length > 0) {
-                interactions = savedInteractions;
-                nextInteractionId = Math.max(...interactions.map(i => i.id)) + 1;
-            }
-            if (savedSegments.length > 0) {
-                segmentDefinitions = savedSegments;
-                nextSegmentDefinitionId = Math.max(...segmentDefinitions.map(s => s.id)) + 1;
-            }
-            
-            updateDiagnostic('Datos locales cargados exitosamente', 'success');
+        function clearLocalCache() {
+            const collections = ['segments', 'clients', 'sales', 'deliveries', 'reminders', 'interactions'];
+            collections.forEach(collection => {
+                localStorage.removeItem(`malanguisimas_cache_${collection}`);
+            });
         }
 
         // ==========================================
@@ -2080,8 +2116,11 @@
         // ==========================================
         document.addEventListener('DOMContentLoaded', function () {
             try {
-                console.log('Iniciando aplicación Malanguísimas...');
+                console.log('🌶️ Iniciando aplicación Malanguísimas...');
                 updateDiagnostic('DOM cargado, iniciando aplicación...', 'info');
+                
+                // Mostrar mensaje inicial
+                showNotification('🌶️ Bienvenido a Malanguísimas - Sistema de Gestión de Clientes', 'info');
                 
                 // Inicializar Firebase
                 initializeFirebase();
@@ -2093,10 +2132,21 @@
                 console.error('Error crítico al iniciar la aplicación:', error);
                 updateDiagnostic(`Error crítico: ${error.message}`, 'error');
                 document.getElementById('loading-overlay').innerHTML = `
-                    <div class="text-center">
-                        <h2 class="text-2xl font-bold text-red-600 mb-4">Error al cargar la aplicación</h2>
-                        <p class="text-gray-600 mb-4">Por favor, recarga la página.</p>
-                        <pre class="text-left bg-gray-100 p-4 rounded max-w-2xl mx-auto text-sm">${error.stack}</pre>
+                    <div class="text-center p-8">
+                        <h2 class="text-2xl font-bold text-red-600 mb-4">❌ Error al cargar la aplicación</h2>
+                        <p class="text-gray-600 mb-4">Ha ocurrido un error crítico. Por favor:</p>
+                        <ol class="text-left max-w-md mx-auto mb-6 list-decimal list-inside space-y-2">
+                            <li>Verifica tu conexión a internet</li>
+                            <li>Recarga la página (F5)</li>
+                            <li>Si el problema persiste, contacta al soporte</li>
+                        </ol>
+                        <button onclick="location.reload()" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            🔄 Recargar Página
+                        </button>
+                        <details class="mt-6">
+                            <summary class="cursor-pointer text-sm text-gray-500">Detalles técnicos</summary>
+                            <pre class="text-left bg-gray-100 p-4 rounded mt-2 text-xs overflow-auto">${error.stack}</pre>
+                        </details>
                     </div>
                 `;
             }
@@ -3632,6 +3682,70 @@
             // EVENT LISTENERS
             // ==========================================
             
+            // Botón de prueba de Firebase
+            const firebaseTestBtn = document.getElementById('firebase-test-btn');
+            firebaseTestBtn.addEventListener('click', async () => {
+                showNotification('🔧 Ejecutando diagnóstico de Firebase...', 'info');
+                
+                const testResults = [];
+                
+                // Test 1: Verificar conexión
+                testResults.push('=== PRUEBA DE CONEXIÓN ===');
+                if (database) {
+                    testResults.push('✅ Firebase inicializado');
+                } else {
+                    testResults.push('❌ Firebase NO inicializado');
+                }
+                
+                // Test 2: Verificar autenticación
+                testResults.push('\n=== PRUEBA DE AUTENTICACIÓN ===');
+                if (currentUser) {
+                    testResults.push(`✅ Usuario autenticado: ${currentUser.uid}`);
+                } else {
+                    testResults.push('❌ Usuario NO autenticado');
+                }
+                
+                // Test 3: Verificar lectura
+                testResults.push('\n=== PRUEBA DE LECTURA ===');
+                try {
+                    const snapshot = await database.ref('segments').once('value');
+                    testResults.push(`✅ Lectura exitosa: ${snapshot.exists() ? 'Datos encontrados' : 'Sin datos'}`);
+                } catch (error) {
+                    testResults.push(`❌ Error de lectura: ${error.message}`);
+                }
+                
+                // Test 4: Verificar escritura
+                testResults.push('\n=== PRUEBA DE ESCRITURA ===');
+                const testId = `test_${Date.now()}`;
+                try {
+                    await database.ref(`_test/${testId}`).set({
+                        timestamp: Date.now(),
+                        test: true
+                    });
+                    testResults.push('✅ Escritura exitosa');
+                    
+                    // Limpiar
+                    await database.ref(`_test/${testId}`).remove();
+                    testResults.push('✅ Eliminación exitosa');
+                } catch (error) {
+                    testResults.push(`❌ Error de escritura: ${error.message}`);
+                    if (error.code === 'PERMISSION_DENIED') {
+                        testResults.push('\n⚠️ ACCIÓN REQUERIDA:');
+                        testResults.push('1. Ve a console.firebase.google.com');
+                        testResults.push('2. Selecciona el proyecto: malanguisimas-clientes');
+                        testResults.push('3. Ve a Realtime Database → Reglas');
+                        testResults.push('4. Cambia las reglas a:');
+                        testResults.push('{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}');
+                        testResults.push('5. Haz clic en "Publicar"');
+                    }
+                }
+                
+                // Mostrar resultados
+                const resultMessage = testResults.join('\n');
+                console.log(resultMessage);
+                alert(resultMessage);
+            });
+            
             // Modal de detalles del segmento
             closeSegmentModalBtn.addEventListener('click', hideSegmentModal);
             segmentModal.addEventListener('click', (e) => {
@@ -4165,24 +4279,41 @@
             // ==========================================
             
             try {
-                // Si hay Firebase configurado, los datos se cargarán automáticamente
-                // Si no, cargar datos locales
-                if (isOfflineMode) {
-                    loadLocalData();
-                }
+                // Para una app multiusuario, Firebase es la fuente de verdad
+                console.log('🌐 Aplicación multiusuario - esperando datos de Firebase...');
+                updateDiagnostic('Aplicación multiusuario - Firebase es la fuente principal', 'info');
+                
+                // Si no hay Firebase, mostrar error crítico
+                if (!database && !isOfflineMode) {
+                    console.error('❌ Firebase no está disponible en una app multiusuario');
+                    showNotification('❌ Error crítico: No se puede conectar con la base de datos compartida', 'error');
+                    
+                    // Mostrar instrucciones específicas
+                    setTimeout(() => {
+                        if (!database) {
+                            const errorMsg = `
+⚠️ APLICACIÓN MULTIUSUARIO - FIREBASE REQUERIDO
 
-                // Guardar segmentos iniciales en Firebase si no están guardados
-                if (!isOfflineMode && database) {
-                    // Verificar si ya existen segmentos en Firebase
-                    database.ref('segments').once('value').then((snapshot) => {
-                        if (!snapshot.exists()) {
-                            // No hay segmentos, guardar los predeterminados
-                            segmentDefinitions.forEach(segment => {
-                                saveToFirebase('segments', segment);
-                            });
-                            updateDiagnostic('Segmentos predeterminados guardados en Firebase', 'success');
+Esta aplicación requiere Firebase para funcionar correctamente con múltiples usuarios.
+
+Posibles problemas:
+1. Las reglas de Firebase no permiten acceso
+2. Error de configuración de Firebase
+3. Problemas de conexión a internet
+
+Usa el botón "🔧 Probar Firebase" para diagnosticar el problema.
+                            `;
+                            alert(errorMsg);
                         }
-                    });
+                    }, 2000);
+                }
+                
+                // Si Firebase está configurado, los listeners cargarán los datos automáticamente
+                
+                // Mientras tanto, usar datos predeterminados si no hay nada
+                if (segmentDefinitions.length === 0) {
+                    console.log('📋 Usando segmentos predeterminados temporalmente...');
+                    // Los segmentos ya están definidos arriba
                 }
 
                 // Renderizar acordeón de recomendaciones
@@ -4230,7 +4361,7 @@
                 document.getElementById('interaction-date').value = dateTimeStr;
 
                 // Renderizar componentes iniciales
-                console.log('Renderizando componentes...');
+                console.log('🎨 Renderizando componentes...');
                 updateDiagnostic('Renderizando componentes iniciales...', 'info');
                 
                 renderSegmentCards(segmentDefinitions);
@@ -4254,14 +4385,34 @@
                 // Ocultar loading overlay
                 setTimeout(() => {
                     document.getElementById('loading-overlay').style.display = 'none';
-                    console.log('Aplicación cargada exitosamente');
-                    updateDiagnostic('Aplicación cargada exitosamente', 'success');
+                    console.log('✅ Interfaz cargada');
+                    updateDiagnostic('Interfaz cargada - esperando sincronización con Firebase', 'info');
+                    
+                    if (!database) {
+                        showNotification('⚠️ Trabajando sin conexión a la base de datos compartida', 'warning');
+                    }
                 }, 500);
                 
+                // Guardar segmentos predeterminados en Firebase si está disponible
+                if (database && !isOfflineMode) {
+                    // Verificar si ya existen segmentos en Firebase
+                    database.ref('segments').once('value').then((snapshot) => {
+                        if (!snapshot.exists() || Object.keys(snapshot.val() || {}).length === 0) {
+                            console.log('📤 Subiendo segmentos predeterminados a Firebase...');
+                            segmentDefinitions.forEach(segment => {
+                                saveToFirebase('segments', segment);
+                            });
+                        }
+                    });
+                }
+                
             } catch (error) {
-                console.error('Error durante la inicialización:', error);
+                console.error('❌ Error durante la inicialización:', error);
                 updateDiagnostic(`Error durante inicialización: ${error.message}`, 'error');
-                throw error;
+                
+                // Intentar continuar con la aplicación aunque haya errores
+                document.getElementById('loading-overlay').style.display = 'none';
+                showNotification('⚠️ La aplicación se cargó con errores. Algunos datos podrían no estar disponibles.', 'warning');
             }
         }
     </script>
