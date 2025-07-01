@@ -621,6 +621,32 @@
         .syncing-icon {
             animation: sync-spin 1s linear infinite;
         }
+
+        /* Panel de diagnóstico Firebase */
+        .firebase-diagnostic {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            max-width: 300px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+
+        .firebase-diagnostic.success {
+            border: 2px solid #22c55e;
+        }
+
+        .firebase-diagnostic.error {
+            border: 2px solid #ef4444;
+        }
+
+        .firebase-diagnostic.warning {
+            border: 2px solid #f59e0b;
+        }
     </style>
 </head>
 <body class="antialiased">
@@ -632,6 +658,12 @@
     
     <!-- Sistema de notificaciones -->
     <div id="notification-container"></div>
+
+    <!-- Panel de diagnóstico Firebase (solo se muestra en desarrollo) -->
+    <div id="firebase-diagnostic" class="firebase-diagnostic" style="display: none;">
+        <h4 class="font-bold mb-2">🔧 Diagnóstico Firebase</h4>
+        <div id="diagnostic-content"></div>
+    </div>
 
     <!-- Header mejorado con menú de tabs -->
     <header class="header-gradient text-white shadow-lg sticky top-0 z-20">
@@ -1366,153 +1398,390 @@
         let currentUser = null;
         let isOfflineMode = false;
         let syncListeners = [];
+        let retryTimeout = null;
+        let connectionAttempts = 0;
         
         // ==========================================
-        // INICIALIZACIÓN DE FIREBASE
+        // SISTEMA DE DIAGNÓSTICO
+        // ==========================================
+        
+        // Mostrar panel de diagnóstico solo en desarrollo
+        const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        
+        function updateDiagnostic(message, status = 'info') {
+            if (isDevelopment) {
+                const diagnosticPanel = document.getElementById('firebase-diagnostic');
+                const diagnosticContent = document.getElementById('diagnostic-content');
+                
+                diagnosticPanel.style.display = 'block';
+                diagnosticPanel.className = `firebase-diagnostic ${status}`;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                diagnosticContent.innerHTML = `<p class="mb-1"><strong>${timestamp}:</strong> ${message}</p>` + diagnosticContent.innerHTML;
+                
+                // Limitar a las últimas 10 entradas
+                const entries = diagnosticContent.querySelectorAll('p');
+                if (entries.length > 10) {
+                    entries[entries.length - 1].remove();
+                }
+            }
+        }
+        
+        // ==========================================
+        // INICIALIZACIÓN DE FIREBASE MEJORADA
         // ==========================================
         
         function initializeFirebase() {
+            updateDiagnostic('Iniciando conexión con Firebase...', 'info');
+            
             try {
-                firebaseApp = firebase.initializeApp(firebaseConfig);
+                // Verificar si Firebase ya está inicializado
+                if (firebase.apps.length > 0) {
+                    updateDiagnostic('Firebase ya inicializado, reutilizando instancia', 'warning');
+                    firebaseApp = firebase.app();
+                } else {
+                    firebaseApp = firebase.initializeApp(firebaseConfig);
+                    updateDiagnostic('Firebase inicializado correctamente', 'success');
+                }
+                
                 database = firebase.database();
                 auth = firebase.auth();
                 
-                // Autenticación anónima
-                auth.signInAnonymously()
+                // Habilitar persistencia offline
+                database.goOffline();
+                database.goOnline();
+                
+                // Autenticación anónima con reintentos
+                authenticateUser();
+                
+            } catch (error) {
+                console.error('Error al inicializar Firebase:', error);
+                updateDiagnostic(`Error de inicialización: ${error.message}`, 'error');
+                showNotification('Error al conectar con Firebase. Trabajando en modo offline.', 'error');
+                enableOfflineMode();
+            }
+        }
+        
+        // Función de autenticación con reintentos
+        function authenticateUser() {
+            updateDiagnostic('Iniciando autenticación anónima...', 'info');
+            
+            auth.signInAnonymously()
+                .then((userCredential) => {
+                    currentUser = userCredential.user;
+                    updateDiagnostic(`Usuario autenticado: ${currentUser.uid}`, 'success');
+                    console.log('✅ Usuario autenticado en Firebase:', currentUser.uid);
+                    
+                    // Verificar reglas de base de datos
+                    testDatabaseAccess();
+                })
+                .catch(error => {
+                    console.error('Error de autenticación:', error);
+                    updateDiagnostic(`Error de autenticación: ${error.message}`, 'error');
+                    
+                    // Reintentar después de 3 segundos
+                    connectionAttempts++;
+                    if (connectionAttempts < 3) {
+                        updateDiagnostic(`Reintentando autenticación (intento ${connectionAttempts + 1}/3)...`, 'warning');
+                        setTimeout(authenticateUser, 3000);
+                    } else {
+                        showNotification('No se pudo conectar con Firebase. Trabajando en modo offline.', 'error');
+                        enableOfflineMode();
+                    }
+                });
+        }
+        
+        // Función para probar acceso a la base de datos
+        function testDatabaseAccess() {
+            updateDiagnostic('Probando acceso a la base de datos...', 'info');
+            
+            // Intentar leer un valor de prueba
+            database.ref('.info/connected').once('value')
+                .then((snapshot) => {
+                    updateDiagnostic('Acceso de lectura confirmado', 'success');
+                    
+                    // Intentar escribir un valor de prueba
+                    const testRef = database.ref('_test_' + currentUser.uid);
+                    testRef.set({
+                        timestamp: firebase.database.ServerValue.TIMESTAMP,
+                        test: true
+                    })
                     .then(() => {
-                        console.log('✅ Usuario autenticado en Firebase');
-                        currentUser = auth.currentUser;
+                        updateDiagnostic('Acceso de escritura confirmado', 'success');
+                        // Limpiar el valor de prueba
+                        testRef.remove();
+                        
+                        // Todo funcionando, configurar sincronización
                         setupRealtimeSync();
                         showNotification('✅ Conectado a Firebase - Sincronización habilitada', 'success');
                         updateSyncStatus('synced');
                     })
                     .catch(error => {
-                        console.error('Error de autenticación:', error);
-                        showNotification('Error al conectar con Firebase: ' + error.message, 'error');
-                        isOfflineMode = true;
+                        updateDiagnostic(`Error de escritura: ${error.message}`, 'error');
+                        showNotification('⚠️ Conectado pero sin permisos de escritura. Verifica las reglas de Firebase.', 'warning');
                         updateSyncStatus('offline');
+                        
+                        // Mostrar instrucciones para arreglar las reglas
+                        showFirebaseRulesHelp();
                     });
-                
-                // Escuchar cambios de estado de conexión
-                firebase.database().ref('.info/connected').on('value', (snapshot) => {
-                    if (snapshot.val() === true) {
-                        updateSyncStatus('synced');
-                    } else {
-                        updateSyncStatus('offline');
-                    }
+                })
+                .catch(error => {
+                    updateDiagnostic(`Error de lectura: ${error.message}`, 'error');
+                    showNotification('Error al acceder a la base de datos. Verifica tu configuración.', 'error');
+                    enableOfflineMode();
                 });
-                
-            } catch (error) {
-                console.error('Error al inicializar Firebase:', error);
-                showNotification('Error al conectar con Firebase', 'error');
-                isOfflineMode = true;
-                updateSyncStatus('offline');
-            }
         }
+        
+        // Función para mostrar ayuda sobre las reglas de Firebase
+        function showFirebaseRulesHelp() {
+            const helpMessage = `
+                <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <h4 class="font-bold text-yellow-800 mb-2">⚠️ Acción Requerida: Configurar Reglas de Firebase</h4>
+                    <p class="text-sm text-yellow-700 mb-2">Para habilitar la sincronización, actualiza las reglas en tu consola de Firebase:</p>
+                    <ol class="list-decimal list-inside text-sm text-yellow-700 space-y-1">
+                        <li>Ve a <a href="https://console.firebase.google.com" target="_blank" class="underline">console.firebase.google.com</a></li>
+                        <li>Selecciona tu proyecto: malanguisimas-clientes</li>
+                        <li>Ve a Realtime Database → Reglas</li>
+                        <li>Reemplaza las reglas con:
+                            <pre class="bg-gray-800 text-gray-100 p-2 rounded mt-1 text-xs">{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}</pre>
+                        </li>
+                        <li>Haz clic en "Publicar"</li>
+                        <li>Recarga esta página</li>
+                    </ol>
+                </div>
+            `;
+            
+            // Crear notificación persistente
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = 'notification warning p-4 rounded-lg';
+            notification.innerHTML = helpMessage;
+            container.appendChild(notification);
+        }
+        
+        // Función para habilitar modo offline
+        function enableOfflineMode() {
+            isOfflineMode = true;
+            updateSyncStatus('offline');
+            updateDiagnostic('Modo offline activado', 'warning');
+            
+            // Cargar datos locales
+            loadLocalData();
+        }
+        
+        // ==========================================
+        // FUNCIONES DE SINCRONIZACIÓN MEJORADAS
+        // ==========================================
         
         // Función para configurar sincronización en tiempo real
         function setupRealtimeSync() {
-            if (!database || !currentUser) return;
+            if (!database || !currentUser) {
+                updateDiagnostic('No se puede configurar sincronización: falta database o usuario', 'error');
+                return;
+            }
             
-            // Escuchar cambios en segmentos
-            const segmentsRef = database.ref('segments');
-            syncListeners.push(segmentsRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    segmentDefinitions = Object.values(data);
-                    nextSegmentDefinitionId = Math.max(...segmentDefinitions.map(s => s.id || 0)) + 1;
-                    
-                    // Actualizar UI si está en la vista de clientes
-                    if (document.querySelector('[data-tab="clients"]').classList.contains('active')) {
-                        if (viewSegmentsBtn.classList.contains('active')) {
-                            renderSegmentCards(segmentDefinitions);
-                        }
-                    }
-                    
-                    populateCategorySelect();
-                    populateReminderSegmentSelect();
-                }
-            }));
+            updateDiagnostic('Configurando sincronización en tiempo real...', 'info');
             
-            // Escuchar cambios en clientes
-            const clientsRef = database.ref('clients');
-            syncListeners.push(clientsRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    individualClients = Object.values(data);
-                    nextIndividualClientId = Math.max(...individualClients.map(c => c.id || 0)) + 1;
-                    
-                    // Actualizar UI si está en la vista de clientes
-                    if (document.querySelector('[data-tab="clients"]').classList.contains('active')) {
-                        if (viewSegmentsBtn.classList.contains('active')) {
-                            renderSegmentCards(segmentDefinitions);
-                        } else {
-                            renderIndividualClientList(individualClients, sortBySelect.value, sortOrderSelect.value);
-                        }
-                    }
-                    
-                    updateDashboard();
-                    renderPortfolioChart();
-                    renderSalesBySegmentChart();
-                    if (mapInstance) updateMapMarkers();
+            // Escuchar cambios de estado de conexión
+            database.ref('.info/connected').on('value', (snapshot) => {
+                if (snapshot.val() === true) {
+                    updateSyncStatus('synced');
+                    updateDiagnostic('Estado: Conectado', 'success');
+                } else {
+                    updateSyncStatus('offline');
+                    updateDiagnostic('Estado: Desconectado', 'warning');
                 }
-            }));
+            });
             
-            // Escuchar cambios en ventas
-            const salesRef = database.ref('sales');
-            syncListeners.push(salesRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    sales = Object.values(data);
-                    nextSaleId = Math.max(...sales.map(s => s.id || 0)) + 1;
-                    renderSales();
-                    updateDashboard();
-                    renderSalesBySegmentChart();
-                    renderSalesTrendChart();
-                }
-            }));
-            
-            // Escuchar cambios en entregas
-            const deliveriesRef = database.ref('deliveries');
-            syncListeners.push(deliveriesRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    deliveries = Object.values(data);
-                    nextDeliveryId = Math.max(...deliveries.map(d => d.id || 0)) + 1;
-                    renderDeliveries();
-                    updateDashboard();
-                }
-            }));
-            
-            // Escuchar cambios en recordatorios
-            const remindersRef = database.ref('reminders');
-            syncListeners.push(remindersRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    weeklyReminders = Object.values(data);
-                    nextReminderId = Math.max(...weeklyReminders.map(r => r.id || 0)) + 1;
-                    renderReminders();
-                }
-            }));
-            
-            // Escuchar cambios en interacciones
-            const interactionsRef = database.ref('interactions');
-            syncListeners.push(interactionsRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    interactions = Object.values(data);
-                    nextInteractionId = Math.max(...interactions.map(i => i.id || 0)) + 1;
-                    
-                    // Actualizar timeline si está visible
-                    const selectedClientId = crmClientSelect.value;
-                    if (selectedClientId) {
-                        showInteractionsTimeline(selectedClientId);
-                    }
-                }
-            }));
+            // Configurar listeners con manejo de errores
+            setupDataListeners();
             
             // Configurar presencia de usuarios
             setupUserPresence();
+            
+            updateDiagnostic('Sincronización configurada correctamente', 'success');
+        }
+        
+        // Configurar listeners de datos con manejo de errores
+        function setupDataListeners() {
+            // Escuchar cambios en segmentos
+            const segmentsRef = database.ref('segments');
+            const segmentsListener = segmentsRef.on('value', 
+                (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            segmentDefinitions = Object.values(data);
+                            nextSegmentDefinitionId = Math.max(...segmentDefinitions.map(s => s.id || 0)) + 1;
+                            
+                            updateDiagnostic(`Segmentos sincronizados: ${segmentDefinitions.length}`, 'success');
+                            
+                            // Actualizar UI
+                            if (document.querySelector('[data-tab="clients"]').classList.contains('active')) {
+                                if (viewSegmentsBtn.classList.contains('active')) {
+                                    renderSegmentCards(segmentDefinitions);
+                                }
+                            }
+                            
+                            populateCategorySelect();
+                            populateReminderSegmentSelect();
+                        }
+                    } catch (error) {
+                        console.error('Error procesando segmentos:', error);
+                        updateDiagnostic(`Error procesando segmentos: ${error.message}`, 'error');
+                    }
+                },
+                (error) => {
+                    console.error('Error escuchando segmentos:', error);
+                    updateDiagnostic(`Error escuchando segmentos: ${error.message}`, 'error');
+                }
+            );
+            syncListeners.push({ ref: segmentsRef, listener: segmentsListener });
+            
+            // Escuchar cambios en clientes
+            const clientsRef = database.ref('clients');
+            const clientsListener = clientsRef.on('value', 
+                (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            individualClients = Object.values(data);
+                            nextIndividualClientId = Math.max(...individualClients.map(c => c.id || 0)) + 1;
+                            
+                            updateDiagnostic(`Clientes sincronizados: ${individualClients.length}`, 'success');
+                            
+                            // Actualizar UI
+                            if (document.querySelector('[data-tab="clients"]').classList.contains('active')) {
+                                if (viewSegmentsBtn.classList.contains('active')) {
+                                    renderSegmentCards(segmentDefinitions);
+                                } else {
+                                    renderIndividualClientList(individualClients, sortBySelect.value, sortOrderSelect.value);
+                                }
+                            }
+                            
+                            updateDashboard();
+                            renderPortfolioChart();
+                            renderSalesBySegmentChart();
+                            populateDeliveryClientSelect();
+                            populateSaleClientSelect();
+                            populateCRMClientSelect();
+                            if (mapInstance) updateMapMarkers();
+                        }
+                    } catch (error) {
+                        console.error('Error procesando clientes:', error);
+                        updateDiagnostic(`Error procesando clientes: ${error.message}`, 'error');
+                    }
+                },
+                (error) => {
+                    console.error('Error escuchando clientes:', error);
+                    updateDiagnostic(`Error escuchando clientes: ${error.message}`, 'error');
+                }
+            );
+            syncListeners.push({ ref: clientsRef, listener: clientsListener });
+            
+            // Configurar listeners para ventas, entregas, recordatorios e interacciones
+            setupAdditionalListeners();
+        }
+        
+        // Configurar listeners adicionales
+        function setupAdditionalListeners() {
+            // Escuchar cambios en ventas
+            const salesRef = database.ref('sales');
+            const salesListener = salesRef.on('value', 
+                (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            sales = Object.values(data);
+                            nextSaleId = Math.max(...sales.map(s => s.id || 0)) + 1;
+                            updateDiagnostic(`Ventas sincronizadas: ${sales.length}`, 'success');
+                            renderSales();
+                            updateDashboard();
+                            renderSalesBySegmentChart();
+                            renderSalesTrendChart();
+                        }
+                    } catch (error) {
+                        console.error('Error procesando ventas:', error);
+                        updateDiagnostic(`Error procesando ventas: ${error.message}`, 'error');
+                    }
+                },
+                (error) => {
+                    console.error('Error escuchando ventas:', error);
+                    updateDiagnostic(`Error escuchando ventas: ${error.message}`, 'error');
+                }
+            );
+            syncListeners.push({ ref: salesRef, listener: salesListener });
+            
+            // Escuchar cambios en entregas
+            const deliveriesRef = database.ref('deliveries');
+            const deliveriesListener = deliveriesRef.on('value', 
+                (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            deliveries = Object.values(data);
+                            nextDeliveryId = Math.max(...deliveries.map(d => d.id || 0)) + 1;
+                            updateDiagnostic(`Entregas sincronizadas: ${deliveries.length}`, 'success');
+                            renderDeliveries();
+                            updateDashboard();
+                        }
+                    } catch (error) {
+                        console.error('Error procesando entregas:', error);
+                        updateDiagnostic(`Error procesando entregas: ${error.message}`, 'error');
+                    }
+                }
+            );
+            syncListeners.push({ ref: deliveriesRef, listener: deliveriesListener });
+            
+            // Escuchar cambios en recordatorios
+            const remindersRef = database.ref('reminders');
+            const remindersListener = remindersRef.on('value', 
+                (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            weeklyReminders = Object.values(data);
+                            nextReminderId = Math.max(...weeklyReminders.map(r => r.id || 0)) + 1;
+                            updateDiagnostic(`Recordatorios sincronizados: ${weeklyReminders.length}`, 'success');
+                            renderReminders();
+                        }
+                    } catch (error) {
+                        console.error('Error procesando recordatorios:', error);
+                        updateDiagnostic(`Error procesando recordatorios: ${error.message}`, 'error');
+                    }
+                }
+            );
+            syncListeners.push({ ref: remindersRef, listener: remindersListener });
+            
+            // Escuchar cambios en interacciones
+            const interactionsRef = database.ref('interactions');
+            const interactionsListener = interactionsRef.on('value', 
+                (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            interactions = Object.values(data);
+                            nextInteractionId = Math.max(...interactions.map(i => i.id || 0)) + 1;
+                            updateDiagnostic(`Interacciones sincronizadas: ${interactions.length}`, 'success');
+                            
+                            // Actualizar timeline si está visible
+                            const selectedClientId = crmClientSelect.value;
+                            if (selectedClientId) {
+                                showInteractionsTimeline(selectedClientId);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error procesando interacciones:', error);
+                        updateDiagnostic(`Error procesando interacciones: ${error.message}`, 'error');
+                    }
+                }
+            );
+            syncListeners.push({ ref: interactionsRef, listener: interactionsListener });
         }
         
         // Función para configurar presencia de usuarios
@@ -1566,63 +1835,118 @@
             });
         }
         
-        // Función para guardar datos en Firebase
-        function saveToFirebase(collection, data) {
+        // ==========================================
+        // FUNCIONES DE GUARDADO CON REINTENTOS
+        // ==========================================
+        
+        // Función para guardar datos en Firebase con reintentos
+        function saveToFirebase(collection, data, retries = 3) {
             if (database && !isOfflineMode) {
                 updateSyncStatus('syncing');
+                updateDiagnostic(`Guardando ${collection}/${data.id}...`, 'info');
+                
                 database.ref(`${collection}/${data.id}`).set(data)
                     .then(() => {
                         updateSyncStatus('synced');
+                        updateDiagnostic(`${collection}/${data.id} guardado exitosamente`, 'success');
+                        
+                        // Guardar también localmente como respaldo
+                        saveData(collection, data);
                     })
                     .catch(error => {
                         console.error('Error al guardar en Firebase:', error);
-                        updateSyncStatus('offline');
-                        // Guardar localmente como fallback
-                        saveData(collection, data);
+                        updateDiagnostic(`Error guardando ${collection}/${data.id}: ${error.message}`, 'error');
+                        
+                        if (retries > 0) {
+                            updateDiagnostic(`Reintentando guardar ${collection}/${data.id} (${retries} intentos restantes)...`, 'warning');
+                            setTimeout(() => {
+                                saveToFirebase(collection, data, retries - 1);
+                            }, 1000);
+                        } else {
+                            updateSyncStatus('offline');
+                            showNotification('No se pudo guardar en la nube. Guardado localmente.', 'warning');
+                            // Guardar localmente como fallback
+                            saveData(collection, data);
+                        }
                     });
             } else {
                 // Modo offline - guardar solo localmente
                 saveData(collection, data);
+                showNotification('Guardado localmente (sin conexión)', 'info');
             }
         }
         
-        // Función para actualizar datos en Firebase
-        function updateInFirebase(collection, id, data) {
+        // Función para actualizar datos en Firebase con reintentos
+        function updateInFirebase(collection, id, data, retries = 3) {
             if (database && !isOfflineMode) {
                 updateSyncStatus('syncing');
+                updateDiagnostic(`Actualizando ${collection}/${id}...`, 'info');
+                
                 database.ref(`${collection}/${id}`).update(data)
                     .then(() => {
                         updateSyncStatus('synced');
+                        updateDiagnostic(`${collection}/${id} actualizado exitosamente`, 'success');
+                        
+                        // Actualizar también localmente
+                        updateData(collection, id, data);
                     })
                     .catch(error => {
                         console.error('Error al actualizar en Firebase:', error);
-                        updateSyncStatus('offline');
-                        // Actualizar localmente como fallback
-                        updateData(collection, id, data);
+                        updateDiagnostic(`Error actualizando ${collection}/${id}: ${error.message}`, 'error');
+                        
+                        if (retries > 0) {
+                            updateDiagnostic(`Reintentando actualizar ${collection}/${id} (${retries} intentos restantes)...`, 'warning');
+                            setTimeout(() => {
+                                updateInFirebase(collection, id, data, retries - 1);
+                            }, 1000);
+                        } else {
+                            updateSyncStatus('offline');
+                            showNotification('No se pudo actualizar en la nube. Actualizado localmente.', 'warning');
+                            // Actualizar localmente como fallback
+                            updateData(collection, id, data);
+                        }
                     });
             } else {
                 // Modo offline - actualizar solo localmente
                 updateData(collection, id, data);
+                showNotification('Actualizado localmente (sin conexión)', 'info');
             }
         }
         
-        // Función para eliminar datos de Firebase
-        function deleteFromFirebase(collection, id) {
+        // Función para eliminar datos de Firebase con reintentos
+        function deleteFromFirebase(collection, id, retries = 3) {
             if (database && !isOfflineMode) {
                 updateSyncStatus('syncing');
+                updateDiagnostic(`Eliminando ${collection}/${id}...`, 'info');
+                
                 database.ref(`${collection}/${id}`).remove()
                     .then(() => {
                         updateSyncStatus('synced');
+                        updateDiagnostic(`${collection}/${id} eliminado exitosamente`, 'success');
+                        
+                        // Eliminar también localmente
+                        deleteData(collection, id);
                     })
                     .catch(error => {
                         console.error('Error al eliminar de Firebase:', error);
-                        updateSyncStatus('offline');
-                        // Eliminar localmente como fallback
-                        deleteData(collection, id);
+                        updateDiagnostic(`Error eliminando ${collection}/${id}: ${error.message}`, 'error');
+                        
+                        if (retries > 0) {
+                            updateDiagnostic(`Reintentando eliminar ${collection}/${id} (${retries} intentos restantes)...`, 'warning');
+                            setTimeout(() => {
+                                deleteFromFirebase(collection, id, retries - 1);
+                            }, 1000);
+                        } else {
+                            updateSyncStatus('offline');
+                            showNotification('No se pudo eliminar de la nube. Eliminado localmente.', 'warning');
+                            // Eliminar localmente como fallback
+                            deleteData(collection, id);
+                        }
                     });
             } else {
                 // Modo offline - eliminar solo localmente
                 deleteData(collection, id);
+                showNotification('Eliminado localmente (sin conexión)', 'info');
             }
         }
         
@@ -1652,19 +1976,34 @@
         
         function saveData(collection, data) {
             try {
-                const localData = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
-                localData.push(data);
+                let localData = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
+                
+                // Verificar si el elemento ya existe
+                const existingIndex = localData.findIndex(item => item.id === data.id);
+                if (existingIndex !== -1) {
+                    // Actualizar si existe
+                    localData[existingIndex] = data;
+                } else {
+                    // Agregar si es nuevo
+                    localData.push(data);
+                }
+                
                 localStorage.setItem(`malanguisimas_${collection}`, JSON.stringify(localData));
+                updateDiagnostic(`Guardado localmente: ${collection}/${data.id}`, 'info');
             } catch (error) {
                 console.error('Error al guardar datos localmente:', error);
+                updateDiagnostic(`Error guardando localmente: ${error.message}`, 'error');
             }
         }
 
         function loadData(collection) {
             try {
-                return JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
+                const data = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
+                updateDiagnostic(`Cargados ${data.length} elementos de ${collection} desde almacenamiento local`, 'info');
+                return data;
             } catch (error) {
                 console.error('Error al cargar datos locales:', error);
+                updateDiagnostic(`Error cargando datos locales: ${error.message}`, 'error');
                 return [];
             }
         }
@@ -1676,9 +2015,11 @@
                 if (index !== -1) {
                     localData[index] = { ...localData[index], ...data };
                     localStorage.setItem(`malanguisimas_${collection}`, JSON.stringify(localData));
+                    updateDiagnostic(`Actualizado localmente: ${collection}/${id}`, 'info');
                 }
             } catch (error) {
                 console.error('Error al actualizar datos localmente:', error);
+                updateDiagnostic(`Error actualizando localmente: ${error.message}`, 'error');
             }
         }
 
@@ -1687,9 +2028,51 @@
                 const localData = JSON.parse(localStorage.getItem(`malanguisimas_${collection}`) || '[]');
                 const filteredData = localData.filter(item => item.id !== id);
                 localStorage.setItem(`malanguisimas_${collection}`, JSON.stringify(filteredData));
+                updateDiagnostic(`Eliminado localmente: ${collection}/${id}`, 'info');
             } catch (error) {
                 console.error('Error al eliminar datos localmente:', error);
+                updateDiagnostic(`Error eliminando localmente: ${error.message}`, 'error');
             }
+        }
+
+        // Función para cargar todos los datos locales
+        function loadLocalData() {
+            updateDiagnostic('Cargando datos desde almacenamiento local...', 'info');
+            
+            // Cargar datos guardados localmente
+            const savedClients = loadData('clients');
+            const savedSales = loadData('sales');
+            const savedDeliveries = loadData('deliveries');
+            const savedReminders = loadData('reminders');
+            const savedInteractions = loadData('interactions');
+            const savedSegments = loadData('segments');
+            
+            if (savedClients.length > 0) {
+                individualClients = savedClients;
+                nextIndividualClientId = Math.max(...individualClients.map(c => c.id)) + 1;
+            }
+            if (savedSales.length > 0) {
+                sales = savedSales;
+                nextSaleId = Math.max(...sales.map(s => s.id)) + 1;
+            }
+            if (savedDeliveries.length > 0) {
+                deliveries = savedDeliveries;
+                nextDeliveryId = Math.max(...deliveries.map(d => d.id)) + 1;
+            }
+            if (savedReminders.length > 0) {
+                weeklyReminders = savedReminders;
+                nextReminderId = Math.max(...weeklyReminders.map(r => r.id)) + 1;
+            }
+            if (savedInteractions.length > 0) {
+                interactions = savedInteractions;
+                nextInteractionId = Math.max(...interactions.map(i => i.id)) + 1;
+            }
+            if (savedSegments.length > 0) {
+                segmentDefinitions = savedSegments;
+                nextSegmentDefinitionId = Math.max(...segmentDefinitions.map(s => s.id)) + 1;
+            }
+            
+            updateDiagnostic('Datos locales cargados exitosamente', 'success');
         }
 
         // ==========================================
@@ -1698,6 +2081,7 @@
         document.addEventListener('DOMContentLoaded', function () {
             try {
                 console.log('Iniciando aplicación Malanguísimas...');
+                updateDiagnostic('DOM cargado, iniciando aplicación...', 'info');
                 
                 // Inicializar Firebase
                 initializeFirebase();
@@ -1707,6 +2091,7 @@
                 
             } catch (error) {
                 console.error('Error crítico al iniciar la aplicación:', error);
+                updateDiagnostic(`Error crítico: ${error.message}`, 'error');
                 document.getElementById('loading-overlay').innerHTML = `
                     <div class="text-center">
                         <h2 class="text-2xl font-bold text-red-600 mb-4">Error al cargar la aplicación</h2>
@@ -1722,6 +2107,7 @@
         // ==========================================
         function initializeApp() {
             console.log('Cargando componentes de la aplicación...');
+            updateDiagnostic('Inicializando componentes de la aplicación...', 'info');
             
             // ==========================================
             // DATOS INICIALES
@@ -1802,32 +2188,7 @@
             ];
 
             // Clientes individuales iniciales con coordenadas aproximadas para Tuxtla Gutiérrez
-            let individualClients = [
-                { id: 1, name: 'Oskandre', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet', lat: 16.7530, lng: -93.1150, lastPurchase: '2024-01-15', totalPurchases: 15000 },
-                { id: 2, name: 'Amanecer Natural Calza', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet', lat: 16.7689, lng: -93.0952, lastPurchase: '2024-01-20', totalPurchases: 12000 },
-                { id: 3, name: 'Arbolaria', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet', lat: 16.7601, lng: -93.1234, lastPurchase: '2024-01-18', totalPurchases: 18000 },
-                { id: 4, name: 'SMART HEALTH', location: 'Tuxtla Gutiérrez', category: 'Tiendas de Productos Naturales y Gourmet', lat: 16.7485, lng: -93.1103, lastPurchase: '2024-01-22', totalPurchases: 20000 },
-                { id: 5, name: 'EnForme Barre', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar', lat: 16.7712, lng: -93.1087, lastPurchase: '2024-01-19', totalPurchases: 8000 },
-                { id: 6, name: 'MOA Gym', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar', lat: 16.7423, lng: -93.1178, lastPurchase: '2024-01-21', totalPurchases: 9500 },
-                { id: 7, name: 'VEGO GYM', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar', lat: 16.7567, lng: -93.0987, lastPurchase: '2024-01-17', totalPurchases: 7500 },
-                { id: 8, name: 'ITRO GYM', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar', lat: 16.7389, lng: -93.1267, lastPurchase: '2024-01-23', totalPurchases: 6000 },
-                { id: 9, name: 'GK GYM SPORT', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar', lat: 16.7645, lng: -93.1145, lastPurchase: '2024-01-16', totalPurchases: 8500 },
-                { id: 10, name: 'Tempo Studio', location: 'Tuxtla Gutiérrez', category: 'Gimnasios y Centros de Bienestar', lat: 16.7502, lng: -93.1056, lastPurchase: '2024-01-24', totalPurchases: 11000 },
-                { id: 11, name: 'Café New York', location: 'Tuxtla Gutiérrez', category: 'Cafeterías y Establecimientos de Comida', lat: 16.7543, lng: -93.1198, lastPurchase: '2024-01-20', totalPurchases: 5000 },
-                { id: 12, name: 'Cafetería Tec de Mty', location: 'Tuxtla Gutiérrez', category: 'Cafeterías y Establecimientos de Comida', lat: 16.7678, lng: -93.1023, lastPurchase: '2024-01-22', totalPurchases: 6500 },
-                { id: 13, name: 'FunCake', location: 'Tuxtla Gutiérrez', category: 'Cafeterías y Establecimientos de Comida', lat: 16.7456, lng: -93.1134, lastPurchase: '2024-01-19', totalPurchases: 4500 },
-                { id: 14, name: 'Abarrotes "La unión" 1 Y 2', location: 'Tuxtla Gutiérrez', category: 'Abarrotes', lat: 16.7398, lng: -93.1089, lastPurchase: '2024-01-25', totalPurchases: 3000 },
-                { id: 15, name: 'Abarrotes Laureles', location: 'Tuxtla Gutiérrez', category: 'Abarrotes', lat: 16.7612, lng: -93.1212, lastPurchase: '2024-01-21', totalPurchases: 2500 },
-                { id: 16, name: 'Abarrotes Rubí', location: 'Tuxtla Gutiérrez', category: 'Abarrotes', lat: 16.7523, lng: -93.0945, lastPurchase: '2024-01-18', totalPurchases: 2800 },
-                { id: 17, name: 'Abarrotes "Romer"', location: 'Tuxtla Gutiérrez', category: 'Abarrotes', lat: 16.7701, lng: -93.1167, lastPurchase: '2024-01-23', totalPurchases: 3200 },
-                { id: 18, name: 'KIDS CENTER', location: 'Tuxtla Gutiérrez', category: 'Centros Infantiles y Recreativos', lat: 16.7467, lng: -93.1045, lastPurchase: '2024-01-20', totalPurchases: 4000 },
-                { id: 19, name: 'Real de Dos', location: 'Tuxtla Gutiérrez', category: 'Hoteles', lat: 16.7589, lng: -93.1123, lastPurchase: '2024-01-15', totalPurchases: 1500 },
-                { id: 20, name: 'MAXIFARMACIAS', location: 'Tuxtla Gutiérrez', category: 'Farmacias', lat: 16.7434, lng: -93.1234, lastPurchase: '2024-01-17', totalPurchases: 1000 },
-                { id: 21, name: 'Empaca y vuela', location: 'Tuxtla Gutiérrez', category: 'Otros (Viajes)', lat: 16.7634, lng: -93.0978, lastPurchase: '2024-01-19', totalPurchases: 800 },
-                { id: 22, name: 'ASHER-EBC', location: 'Tuxtla Gutiérrez', category: 'Otros (Educación)', lat: 16.7378, lng: -93.1156, lastPurchase: '2024-01-16', totalPurchases: 500 },
-                { id: 23, name: 'NOSOTROS', location: 'Tuxtla Gutiérrez', category: 'Requiere Clarificación', lat: 16.7556, lng: -93.1078, lastPurchase: '2024-01-14', totalPurchases: 0 },
-                { id: 24, name: 'TIA YUYI', location: 'Tuxtla Gutiérrez', category: 'Requiere Clarificación', lat: 16.7490, lng: -93.1189, lastPurchase: '2024-01-13', totalPurchases: 0 }
-            ];
+            let individualClients = [];
 
             // Datos de recomendaciones
             const recommendationsData = [
@@ -3807,57 +4168,21 @@
                 // Si hay Firebase configurado, los datos se cargarán automáticamente
                 // Si no, cargar datos locales
                 if (isOfflineMode) {
-                    // Cargar datos guardados localmente
-                    const savedClients = loadData('clients');
-                    const savedSales = loadData('sales');
-                    const savedDeliveries = loadData('deliveries');
-                    const savedReminders = loadData('reminders');
-                    const savedInteractions = loadData('interactions');
-                    
-                    if (savedClients.length > 0) {
-                        individualClients = savedClients;
-                        nextIndividualClientId = Math.max(...individualClients.map(c => c.id)) + 1;
-                    }
-                    if (savedSales.length > 0) {
-                        sales = savedSales;
-                        nextSaleId = Math.max(...sales.map(s => s.id)) + 1;
-                    }
-                    if (savedDeliveries.length > 0) {
-                        deliveries = savedDeliveries;
-                        nextDeliveryId = Math.max(...deliveries.map(d => d.id)) + 1;
-                    }
-                    if (savedReminders.length > 0) {
-                        weeklyReminders = savedReminders;
-                        nextReminderId = Math.max(...weeklyReminders.map(r => r.id)) + 1;
-                    }
-                    if (savedInteractions.length > 0) {
-                        interactions = savedInteractions;
-                        nextInteractionId = Math.max(...interactions.map(i => i.id)) + 1;
-                    }
-                    
-                    // Si no hay datos guardados, usar datos de ejemplo
-                    if (sales.length === 0 && individualClients.length > 0) {
-                        console.log('Iniciando con datos de ejemplo...');
-                        
-                        const sampleSales = [
-                            { id: 1, clientId: 1, amount: 1500, products: '5 bolsas grandes', date: '2024-01-20T10:30:00' },
-                            { id: 2, clientId: 3, amount: 2000, products: '8 bolsas grandes', date: '2024-01-21T14:15:00' },
-                            { id: 3, clientId: 5, amount: 800, products: '3 bolsas medianas', date: '2024-01-22T09:00:00' },
-                            { id: 4, clientId: 10, amount: 1200, products: '4 bolsas grandes', date: '2024-01-23T16:45:00' },
-                            { id: 5, clientId: 2, amount: 1800, products: '6 bolsas grandes, 2 pequeñas', date: '2024-01-24T11:20:00' }
-                        ];
-                        sales = sampleSales;
-                        nextSaleId = 6;
+                    loadLocalData();
+                }
 
-                        const sampleInteractions = [
-                            { id: 1, clientId: 1, type: 'visit', notes: 'Cliente muy satisfecho con el producto', satisfaction: 5, date: '2024-01-15T10:00:00' },
-                            { id: 2, clientId: 3, type: 'call', notes: 'Solicitó información sobre precios al mayoreo', satisfaction: null, date: '2024-01-18T14:30:00' },
-                            { id: 3, clientId: 5, type: 'complaint', notes: 'El último pedido llegó con retraso', satisfaction: 2, date: '2024-01-19T09:15:00' },
-                            { id: 4, clientId: 10, type: 'compliment', notes: 'Excelente sabor, sus clientes están encantados', satisfaction: 5, date: '2024-01-22T17:00:00' }
-                        ];
-                        interactions = sampleInteractions;
-                        nextInteractionId = 5;
-                    }
+                // Guardar segmentos iniciales en Firebase si no están guardados
+                if (!isOfflineMode && database) {
+                    // Verificar si ya existen segmentos en Firebase
+                    database.ref('segments').once('value').then((snapshot) => {
+                        if (!snapshot.exists()) {
+                            // No hay segmentos, guardar los predeterminados
+                            segmentDefinitions.forEach(segment => {
+                                saveToFirebase('segments', segment);
+                            });
+                            updateDiagnostic('Segmentos predeterminados guardados en Firebase', 'success');
+                        }
+                    });
                 }
 
                 // Renderizar acordeón de recomendaciones
@@ -3906,6 +4231,8 @@
 
                 // Renderizar componentes iniciales
                 console.log('Renderizando componentes...');
+                updateDiagnostic('Renderizando componentes iniciales...', 'info');
+                
                 renderSegmentCards(segmentDefinitions);
                 updateOverviewMetrics();
                 updateDashboard();
@@ -3928,10 +4255,12 @@
                 setTimeout(() => {
                     document.getElementById('loading-overlay').style.display = 'none';
                     console.log('Aplicación cargada exitosamente');
+                    updateDiagnostic('Aplicación cargada exitosamente', 'success');
                 }, 500);
                 
             } catch (error) {
                 console.error('Error durante la inicialización:', error);
+                updateDiagnostic(`Error durante inicialización: ${error.message}`, 'error');
                 throw error;
             }
         }
