@@ -85,6 +85,16 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
         
+        .priority-badge {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .priority-badge:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        
         .modal {
             transition: opacity 0.3s ease;
             backdrop-filter: blur(5px);
@@ -157,6 +167,33 @@
                 <div class="glass-card p-6 rounded-xl text-center">
                     <h3 class="text-sm text-gray-600 mb-2">Total Clientes</h3>
                     <p id="total-clients" class="text-2xl font-bold text-[#8D6E63]">0</p>
+                </div>
+            </div>
+
+            <!-- Resumen de prioridades -->
+            <div class="glass-card p-4 rounded-xl mb-8">
+                <h3 class="text-lg font-bold mb-3">Clientes por Prioridad</h3>
+                <div class="flex justify-around items-center">
+                    <div class="text-center">
+                        <div class="text-2xl mb-1">🟢</div>
+                        <p class="text-sm text-gray-600">Alta</p>
+                        <p id="high-priority-count" class="font-bold text-lg">0</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl mb-1">🟡</div>
+                        <p class="text-sm text-gray-600">Media</p>
+                        <p id="medium-priority-count" class="font-bold text-lg">0</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl mb-1">🔴</div>
+                        <p class="text-sm text-gray-600">Baja</p>
+                        <p id="low-priority-count" class="font-bold text-lg">0</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl mb-1">⚪</div>
+                        <p class="text-sm text-gray-600">Sin definir</p>
+                        <p id="no-priority-count" class="font-bold text-lg">0</p>
+                    </div>
                 </div>
             </div>
 
@@ -360,6 +397,36 @@
         </div>
     </div>
 
+    <!-- Edit Client Modal -->
+    <div id="edit-client-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg p-8">
+            <h2 class="text-2xl font-bold text-[#8D6E63] mb-6">Editar Cliente</h2>
+            <form id="edit-client-form" class="space-y-4">
+                <input type="hidden" id="edit-client-id">
+                <input type="text" id="edit-client-name" placeholder="Nombre" class="w-full p-3 border rounded-lg" required>
+                <input type="text" id="edit-client-location" placeholder="Ubicación" class="w-full p-3 border rounded-lg" required>
+                <select id="edit-client-category" class="w-full p-3 border rounded-lg" required>
+                    <option value="">Selecciona categoría</option>
+                    <option value="Tiendas Naturales">🌿 Tiendas Naturales</option>
+                    <option value="Gimnasios">🏋️ Gimnasios</option>
+                    <option value="Cafeterías">☕ Cafeterías</option>
+                    <option value="Abarrotes">🏪 Abarrotes</option>
+                    <option value="Otros">❓ Otros</option>
+                </select>
+                <select id="edit-client-priority" class="w-full p-3 border rounded-lg" required>
+                    <option value="">Selecciona prioridad</option>
+                    <option value="Alta">🟢 Alta</option>
+                    <option value="Media">🟡 Media</option>
+                    <option value="Baja">🔴 Baja</option>
+                </select>
+                <div class="flex gap-4">
+                    <button type="submit" class="btn-primary text-white px-6 py-2 rounded-full flex-1">Guardar Cambios</button>
+                    <button type="button" id="cancel-edit-client" class="bg-gray-300 px-6 py-2 rounded-full flex-1">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Add Sale Modal -->
     <div id="add-sale-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4 opacity-0 pointer-events-none">
         <div class="bg-white rounded-xl shadow-xl w-full max-w-lg p-8">
@@ -375,6 +442,30 @@
                     <button type="button" id="cancel-sale" class="bg-gray-300 px-6 py-2 rounded-full flex-1">Cancelar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Quick Priority Modal -->
+    <div id="priority-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" onclick="event.stopPropagation()">
+            <h3 class="text-xl font-bold text-[#8D6E63] mb-4">Cambiar Prioridad</h3>
+            <p class="text-gray-600 mb-4">Cliente: <span id="priority-client-name" class="font-bold"></span></p>
+            <input type="hidden" id="priority-client-id">
+            <div class="space-y-3">
+                <button onclick="updatePriority('Alta')" class="w-full p-3 rounded-lg border-2 border-green-500 hover:bg-green-50 flex items-center justify-center gap-2 transition-colors">
+                    <span class="text-2xl">🟢</span>
+                    <span class="font-medium">Alta</span>
+                </button>
+                <button onclick="updatePriority('Media')" class="w-full p-3 rounded-lg border-2 border-yellow-500 hover:bg-yellow-50 flex items-center justify-center gap-2 transition-colors">
+                    <span class="text-2xl">🟡</span>
+                    <span class="font-medium">Media</span>
+                </button>
+                <button onclick="updatePriority('Baja')" class="w-full p-3 rounded-lg border-2 border-red-500 hover:bg-red-50 flex items-center justify-center gap-2 transition-colors">
+                    <span class="text-2xl">🔴</span>
+                    <span class="font-medium">Baja</span>
+                </button>
+            </div>
+            <button onclick="closePriorityModal()" class="w-full mt-4 bg-gray-300 px-4 py-2 rounded-full hover:bg-gray-400 transition-colors">Cancelar</button>
         </div>
     </div>
 
@@ -520,6 +611,27 @@
             document.getElementById('active-clients').textContent = activeClients;
             document.getElementById('total-clients').textContent = clients.length;
 
+            // Actualizar conteo de prioridades
+            const priorityCounts = {
+                Alta: 0,
+                Media: 0,
+                Baja: 0,
+                undefined: 0
+            };
+            
+            clients.forEach(client => {
+                if (client.priority in priorityCounts) {
+                    priorityCounts[client.priority]++;
+                } else {
+                    priorityCounts.undefined++;
+                }
+            });
+            
+            document.getElementById('high-priority-count').textContent = priorityCounts.Alta;
+            document.getElementById('medium-priority-count').textContent = priorityCounts.Media;
+            document.getElementById('low-priority-count').textContent = priorityCounts.Baja;
+            document.getElementById('no-priority-count').textContent = priorityCounts.undefined;
+
             renderCharts();
         }
 
@@ -589,14 +701,19 @@
                     <div class="glass-card p-6 rounded-xl">
                         <div class="flex justify-between items-start mb-2">
                             <h3 class="font-bold text-lg">${client.name}</h3>
-                            <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)}">
+                            <button onclick="quickPriority(${client.id}, '${client.name}')" 
+                                title="Click para cambiar prioridad"
+                                class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)} hover:scale-110 transition-transform cursor-pointer">
                                 ${getPriorityEmoji(client.priority)} ${client.priority || 'Sin prioridad'}
-                            </span>
+                            </button>
                         </div>
                         <p class="text-gray-600">${client.location}</p>
                         <p class="text-sm text-[#8D6E63] mb-3">${client.category}</p>
                         ${nextContactText ? `<p class="text-sm text-green-600 mb-2">${nextContactText}</p>` : ''}
-                        <div class="flex gap-2">
+                        <div class="flex gap-2 flex-wrap">
+                            <button onclick="editClient(${client.id})" class="bg-gray-500 text-white px-3 py-1 rounded-full text-sm hover:bg-gray-600">
+                                ✏️ Editar
+                            </button>
                             <button onclick="quickSchedule(${client.id}, '${client.name}')" class="bg-blue-500 text-white px-3 py-1 rounded-full text-sm hover:bg-blue-600">
                                 📅 Programar
                             </button>
@@ -886,16 +1003,30 @@
             });
             clients.forEach(client => {
                 if (client.lat && client.lng) {
+                    // Crear icono personalizado según prioridad
+                    const priorityColors = {
+                        'Alta': '#22c55e',
+                        'Media': '#eab308',
+                        'Baja': '#ef4444',
+                        'undefined': '#9ca3af'
+                    };
+                    const color = priorityColors[client.priority] || priorityColors.undefined;
+                    
                     const icon = L.divIcon({
-                        html: `<div class="text-2xl">${getPriorityEmoji(client.priority)}</div>`,
+                        html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>`,
                         className: 'custom-div-icon',
-                        iconSize: [30, 30]
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
                     });
+                    
                     L.marker([client.lat, client.lng], { icon })
                         .bindPopup(`
                             <b>${client.name}</b><br>
                             ${client.category}<br>
-                            <span class="text-sm">Prioridad: ${client.priority || 'Sin definir'}</span>
+                            <span class="text-sm">Prioridad: ${getPriorityEmoji(client.priority)} ${client.priority || 'Sin definir'}</span><br>
+                            <button onclick="quickPriority(${client.id}, '${client.name}')" class="mt-2 bg-blue-500 text-white px-3 py-1 rounded text-xs">
+                                Cambiar Prioridad
+                            </button>
                         `)
                         .addTo(mapInstance);
                 }
@@ -925,6 +1056,44 @@
                 .then(() => showNotification('✅ Guardado correctamente'))
                 .catch(error => showNotification('❌ Error al guardar', 'error'));
         }
+
+        // Quick priority change
+        window.quickPriority = (clientId, clientName) => {
+            document.getElementById('priority-client-id').value = clientId;
+            document.getElementById('priority-client-name').textContent = clientName;
+            document.getElementById('priority-modal').classList.add('show');
+        };
+
+        window.updatePriority = (newPriority) => {
+            const clientId = parseInt(document.getElementById('priority-client-id').value);
+            const client = clients.find(c => c.id === clientId);
+            
+            if (client) {
+                database.ref(`clients/${clientId}/priority`).set(newPriority)
+                    .then(() => {
+                        showNotification(`✅ Prioridad actualizada a ${newPriority}`);
+                        closePriorityModal();
+                    })
+                    .catch(error => showNotification('❌ Error al actualizar prioridad', 'error'));
+            }
+        };
+
+        window.closePriorityModal = () => {
+            document.getElementById('priority-modal').classList.remove('show');
+        };
+
+        // Edit client function
+        window.editClient = (id) => {
+            const client = clients.find(c => c.id === id);
+            if (client) {
+                document.getElementById('edit-client-id').value = client.id;
+                document.getElementById('edit-client-name').value = client.name;
+                document.getElementById('edit-client-location').value = client.location;
+                document.getElementById('edit-client-category').value = client.category;
+                document.getElementById('edit-client-priority').value = client.priority || '';
+                document.getElementById('edit-client-modal').classList.add('show');
+            }
+        };
 
         // Delete client
         window.deleteClient = (id) => {
@@ -960,6 +1129,7 @@
             // Client modal
             const clientModal = document.getElementById('add-client-modal');
             const locationModal = document.getElementById('location-modal');
+            const editClientModal = document.getElementById('edit-client-modal');
             
             document.getElementById('add-client-btn').addEventListener('click', () => {
                 clientModal.classList.add('show');
@@ -968,6 +1138,19 @@
             document.getElementById('cancel-client').addEventListener('click', () => {
                 clientModal.classList.remove('show');
                 resetClientForm();
+            });
+
+            // Edit client modal handlers
+            document.getElementById('cancel-edit-client').addEventListener('click', () => {
+                editClientModal.classList.remove('show');
+                document.getElementById('edit-client-form').reset();
+            });
+
+            editClientModal.addEventListener('click', (e) => {
+                if (e.target === editClientModal) {
+                    editClientModal.classList.remove('show');
+                    document.getElementById('edit-client-form').reset();
+                }
             });
 
             // Location selector
@@ -1008,6 +1191,14 @@
             });
             document.getElementById('cancel-interaction').addEventListener('click', () => {
                 interactionModal.classList.remove('show');
+            });
+
+            // Priority modal
+            const priorityModal = document.getElementById('priority-modal');
+            priorityModal.addEventListener('click', (e) => {
+                if (e.target === priorityModal) {
+                    closePriorityModal();
+                }
             });
 
             // Forms
@@ -1063,6 +1254,31 @@
                 e.target.reset();
             });
 
+            // Edit client form
+            document.getElementById('edit-client-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const clientId = parseInt(document.getElementById('edit-client-id').value);
+                const client = clients.find(c => c.id === clientId);
+                
+                if (client) {
+                    const updatedClient = {
+                        ...client,
+                        name: document.getElementById('edit-client-name').value,
+                        location: document.getElementById('edit-client-location').value,
+                        category: document.getElementById('edit-client-category').value,
+                        priority: document.getElementById('edit-client-priority').value
+                    };
+                    
+                    database.ref(`clients/${clientId}`).set(updatedClient)
+                        .then(() => {
+                            showNotification('✅ Cliente actualizado correctamente');
+                            editClientModal.classList.remove('show');
+                            document.getElementById('edit-client-form').reset();
+                        })
+                        .catch(error => showNotification('❌ Error al actualizar', 'error'));
+                }
+            });
+
             // Schedule contact form
             document.getElementById('schedule-contact-form').addEventListener('submit', (e) => {
                 e.preventDefault();
@@ -1110,9 +1326,12 @@
                     <p><strong>Nombre:</strong> ${client.name}</p>
                     <p><strong>Ubicación:</strong> ${client.location}</p>
                     <p><strong>Categoría:</strong> ${client.category}</p>
-                    <p><strong>Prioridad:</strong> <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)}">
-                        ${getPriorityEmoji(client.priority)} ${client.priority}
-                    </span></p>
+                    <p><strong>Prioridad:</strong> 
+                        <button onclick="quickPriority(${client.id}, '${client.name}')" 
+                            class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)} hover:scale-110 transition-transform cursor-pointer">
+                            ${getPriorityEmoji(client.priority)} ${client.priority || 'Sin prioridad'}
+                        </button>
+                    </p>
                 `;
                 
                 document.getElementById('interactions-list').innerHTML = clientInteractions.map(i => `
