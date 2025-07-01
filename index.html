@@ -72,6 +72,19 @@
             transition: all 0.3s ease;
         }
         
+        .overdue-badge {
+            animation: pulse 2s infinite;
+        }
+        
+        #weekly-view > div {
+            transition: all 0.3s ease;
+        }
+        
+        #weekly-view > div:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
         .modal {
             transition: opacity 0.3s ease;
             backdrop-filter: blur(5px);
@@ -118,6 +131,7 @@
                 <button class="tab-btn bg-white/10 px-4 py-2 rounded-full" data-tab="clients">👥 Clientes</button>
                 <button class="tab-btn bg-white/10 px-4 py-2 rounded-full" data-tab="crm">💬 CRM</button>
                 <button class="tab-btn bg-white/10 px-4 py-2 rounded-full" data-tab="map">🗺️ Mapa</button>
+                <button class="tab-btn bg-white/10 px-4 py-2 rounded-full" data-tab="calendar">📅 Calendario</button>
             </div>
         </div>
     </header>
@@ -220,6 +234,79 @@
             <h2 class="text-3xl font-bold text-[#8D6E63] mb-8 text-center">Mapa de Clientes</h2>
             <div class="glass-card p-2 rounded-xl">
                 <div id="clients-map" style="height: 500px;"></div>
+            </div>
+        </div>
+
+        <!-- Calendar Tab -->
+        <div id="calendar-tab" class="tab-content">
+            <h2 class="text-3xl font-bold text-[#8D6E63] mb-8 text-center">Calendarización de Contactos</h2>
+            
+            <!-- Métricas de contactos -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="glass-card p-4 rounded-lg text-center">
+                    <h4 class="text-sm text-gray-600">Hoy</h4>
+                    <p id="contacts-today" class="text-2xl font-bold text-[#8D6E63]">0</p>
+                </div>
+                <div class="glass-card p-4 rounded-lg text-center">
+                    <h4 class="text-sm text-gray-600">Esta Semana</h4>
+                    <p id="contacts-week" class="text-2xl font-bold text-[#8D6E63]">0</p>
+                </div>
+                <div class="glass-card p-4 rounded-lg text-center">
+                    <h4 class="text-sm text-gray-600">Atrasados</h4>
+                    <p id="contacts-overdue" class="text-2xl font-bold text-red-600">0</p>
+                </div>
+                <div class="glass-card p-4 rounded-lg text-center">
+                    <h4 class="text-sm text-gray-600">Completados</h4>
+                    <p id="contacts-completed" class="text-2xl font-bold text-green-600">0</p>
+                </div>
+            </div>
+            
+            <div class="grid md:grid-cols-2 gap-6">
+                <!-- Programar nuevo contacto -->
+                <div class="glass-card p-6 rounded-xl">
+                    <h3 class="text-xl font-bold mb-4">Programar Contacto</h3>
+                    <form id="schedule-contact-form" class="space-y-4">
+                        <select id="schedule-client" class="w-full p-3 border rounded-lg" required>
+                            <option value="">Selecciona cliente</option>
+                        </select>
+                        <input type="datetime-local" id="schedule-date" class="w-full p-3 border rounded-lg" required>
+                        <select id="schedule-type" class="w-full p-3 border rounded-lg" required>
+                            <option value="">Tipo de contacto</option>
+                            <option value="call">📞 Llamada</option>
+                            <option value="visit">🏪 Visita</option>
+                            <option value="message">💬 Mensaje</option>
+                            <option value="email">📧 Email</option>
+                        </select>
+                        <textarea id="schedule-notes" placeholder="Notas para el contacto" class="w-full p-3 border rounded-lg" rows="2"></textarea>
+                        <button type="submit" class="btn-primary text-white w-full p-3 rounded-lg">
+                            Programar Contacto
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Vista semanal -->
+                <div class="glass-card p-6 rounded-xl">
+                    <h3 class="text-xl font-bold mb-4">Vista de la Semana</h3>
+                    <div id="weekly-view" class="space-y-2">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Próximos contactos -->
+            <div class="glass-card p-6 rounded-xl mt-6">
+                <h3 class="text-xl font-bold mb-4">Próximos Contactos</h3>
+                <div id="upcoming-contacts" class="space-y-3 max-h-96 overflow-y-auto">
+                    <p class="text-gray-600 text-center">No hay contactos programados</p>
+                </div>
+            </div>
+
+            <!-- Contactos atrasados -->
+            <div class="glass-card p-6 rounded-xl mt-6">
+                <h3 class="text-xl font-bold mb-4 text-red-600">⚠️ Contactos Atrasados</h3>
+                <div id="overdue-contacts" class="space-y-3 max-h-64 overflow-y-auto">
+                    <p class="text-gray-600 text-center">No hay contactos atrasados</p>
+                </div>
             </div>
         </div>
     </main>
@@ -328,6 +415,7 @@
         let clients = [];
         let sales = [];
         let interactions = [];
+        let scheduledContacts = [];
         let mapInstance = null;
         let locationMapInstance = null;
         let locationMarker = null;
@@ -400,6 +488,12 @@
                 interactions = data ? Object.keys(data).map(key => ({ ...data[key], id: parseInt(key) })) : [];
                 updateUI();
             });
+
+            database.ref('scheduledContacts').on('value', (snapshot) => {
+                const data = snapshot.val();
+                scheduledContacts = data ? Object.keys(data).map(key => ({ ...data[key], id: parseInt(key) })) : [];
+                updateCalendar();
+            });
         }
 
         // Update UI
@@ -408,6 +502,7 @@
             renderClients();
             renderSales();
             updateSelects();
+            updateCalendar();
             if (mapInstance) updateMapMarkers();
         }
 
@@ -480,22 +575,49 @@
                 ? clients 
                 : clients.filter(c => c.priority === currentFilter);
             
-            grid.innerHTML = filteredClients.map(client => `
-                <div class="glass-card p-6 rounded-xl">
-                    <div class="flex justify-between items-start mb-2">
-                        <h3 class="font-bold text-lg">${client.name}</h3>
-                        <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)}">
-                            ${getPriorityEmoji(client.priority)} ${client.priority || 'Sin prioridad'}
-                        </span>
+            grid.innerHTML = filteredClients.map(client => {
+                // Obtener próximo contacto programado
+                const nextContact = scheduledContacts
+                    .filter(c => c.clientId === client.id && !c.completed && new Date(c.date) > new Date())
+                    .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+                
+                const nextContactText = nextContact 
+                    ? `📅 ${new Date(nextContact.date).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' })}`
+                    : '';
+                
+                return `
+                    <div class="glass-card p-6 rounded-xl">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="font-bold text-lg">${client.name}</h3>
+                            <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)}">
+                                ${getPriorityEmoji(client.priority)} ${client.priority || 'Sin prioridad'}
+                            </span>
+                        </div>
+                        <p class="text-gray-600">${client.location}</p>
+                        <p class="text-sm text-[#8D6E63] mb-3">${client.category}</p>
+                        ${nextContactText ? `<p class="text-sm text-green-600 mb-2">${nextContactText}</p>` : ''}
+                        <div class="flex gap-2">
+                            <button onclick="quickSchedule(${client.id}, '${client.name}')" class="bg-blue-500 text-white px-3 py-1 rounded-full text-sm hover:bg-blue-600">
+                                📅 Programar
+                            </button>
+                            <button onclick="deleteClient(${client.id})" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600">
+                                🗑️ Eliminar
+                            </button>
+                        </div>
                     </div>
-                    <p class="text-gray-600">${client.location}</p>
-                    <p class="text-sm text-[#8D6E63] mb-3">${client.category}</p>
-                    <button onclick="deleteClient(${client.id})" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600">
-                        🗑️ Eliminar
-                    </button>
-                </div>
-            `).join('') || '<p class="text-center text-gray-600">No hay clientes en esta categoría</p>';
+                `;
+            }).join('') || '<p class="text-center text-gray-600">No hay clientes en esta categoría</p>';
         }
+
+        // Quick schedule function
+        window.quickSchedule = (clientId, clientName) => {
+            document.querySelector('[data-tab="calendar"]').click();
+            setTimeout(() => {
+                document.getElementById('schedule-client').value = clientId;
+                document.getElementById('schedule-date').focus();
+                showNotification(`📅 Programando contacto para ${clientName}`);
+            }, 100);
+        };
 
         // Render sales
         function renderSales() {
@@ -519,11 +641,235 @@
         function updateSelects() {
             const saleSelect = document.getElementById('sale-client');
             const crmSelect = document.getElementById('crm-client-select');
+            const scheduleSelect = document.getElementById('schedule-client');
             const options = '<option value="">Selecciona cliente</option>' + 
                 clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
             saleSelect.innerHTML = options;
             crmSelect.innerHTML = options;
+            scheduleSelect.innerHTML = options;
         }
+
+        // Calendar functions
+        function updateCalendar() {
+            renderUpcomingContacts();
+            renderOverdueContacts();
+            renderWeeklyView();
+            updateCalendarMetrics();
+        }
+
+        function updateCalendarMetrics() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const weekEnd = new Date(today);
+            weekEnd.setDate(weekEnd.getDate() + 7);
+            
+            // Contactos de hoy
+            const todayContacts = scheduledContacts.filter(contact => {
+                const contactDate = new Date(contact.date);
+                return contactDate >= today && 
+                       contactDate < new Date(today.getTime() + 24 * 60 * 60 * 1000) && 
+                       !contact.completed;
+            });
+            
+            // Contactos de la semana
+            const weekContacts = scheduledContacts.filter(contact => {
+                const contactDate = new Date(contact.date);
+                return contactDate >= today && contactDate < weekEnd && !contact.completed;
+            });
+            
+            // Contactos atrasados
+            const overdueContacts = scheduledContacts.filter(contact => {
+                return new Date(contact.date) < now && !contact.completed;
+            });
+            
+            // Contactos completados (del mes actual)
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const completedContacts = scheduledContacts.filter(contact => {
+                return contact.completed && new Date(contact.date) >= monthStart;
+            });
+            
+            document.getElementById('contacts-today').textContent = todayContacts.length;
+            document.getElementById('contacts-week').textContent = weekContacts.length;
+            document.getElementById('contacts-overdue').textContent = overdueContacts.length;
+            document.getElementById('contacts-completed').textContent = completedContacts.length;
+        }
+
+        function renderUpcomingContacts() {
+            const now = new Date();
+            const upcoming = scheduledContacts
+                .filter(contact => new Date(contact.date) > now && !contact.completed)
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            const container = document.getElementById('upcoming-contacts');
+            if (upcoming.length === 0) {
+                container.innerHTML = '<p class="text-gray-600 text-center">No hay contactos programados</p>';
+                return;
+            }
+
+            container.innerHTML = upcoming.map(contact => {
+                const client = clients.find(c => c.id === contact.clientId);
+                const date = new Date(contact.date);
+                const dateStr = date.toLocaleDateString('es-MX', { 
+                    weekday: 'short', 
+                    month: 'short', 
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                const typeIcon = contact.type === 'call' ? '📞' : 
+                               contact.type === 'visit' ? '🏪' : 
+                               contact.type === 'email' ? '📧' : '💬';
+                
+                return `
+                    <div class="glass-card p-4 rounded-lg flex justify-between items-start">
+                        <div class="flex-grow">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="font-bold">${client ? client.name : 'Cliente desconocido'}</span>
+                                <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client?.priority)}">
+                                    ${getPriorityEmoji(client?.priority)} ${client?.priority || 'Sin prioridad'}
+                                </span>
+                            </div>
+                            <p class="text-sm text-gray-600 flex items-center gap-2">
+                                ${typeIcon} ${dateStr}
+                            </p>
+                            ${contact.notes ? `<p class="text-sm text-gray-500 mt-1">${contact.notes}</p>` : ''}
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="completeContact(${contact.id})" class="bg-green-500 text-white px-3 py-1 rounded-full text-sm hover:bg-green-600">
+                                ✓ Completar
+                            </button>
+                            <button onclick="deleteContact(${contact.id})" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderOverdueContacts() {
+            const now = new Date();
+            const overdue = scheduledContacts
+                .filter(contact => new Date(contact.date) < now && !contact.completed)
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            const container = document.getElementById('overdue-contacts');
+            if (overdue.length === 0) {
+                container.innerHTML = '<p class="text-gray-600 text-center">No hay contactos atrasados</p>';
+                return;
+            }
+
+            container.innerHTML = overdue.map(contact => {
+                const client = clients.find(c => c.id === contact.clientId);
+                const date = new Date(contact.date);
+                const daysOverdue = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+                const typeIcon = contact.type === 'call' ? '📞' : 
+                               contact.type === 'visit' ? '🏪' : 
+                               contact.type === 'email' ? '📧' : '💬';
+                
+                return `
+                    <div class="glass-card p-4 rounded-lg border-2 border-red-300">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-grow">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-bold">${client ? client.name : 'Cliente desconocido'}</span>
+                                    <span class="text-red-600 text-sm font-medium">
+                                        (${daysOverdue} días atrasado)
+                                    </span>
+                                </div>
+                                <p class="text-sm text-gray-600">${typeIcon} ${date.toLocaleDateString('es-MX')}</p>
+                                ${contact.notes ? `<p class="text-sm text-gray-500 mt-1">${contact.notes}</p>` : ''}
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="completeContact(${contact.id})" class="bg-green-500 text-white px-3 py-1 rounded-full text-sm hover:bg-green-600">
+                                    ✓ Completar
+                                </button>
+                                <button onclick="deleteContact(${contact.id})" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderWeeklyView() {
+            const container = document.getElementById('weekly-view');
+            const now = new Date();
+            const weekDays = [];
+            
+            // Generar los próximos 7 días
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(now);
+                date.setDate(date.getDate() + i);
+                date.setHours(0, 0, 0, 0);
+                
+                const endDate = new Date(date);
+                endDate.setHours(23, 59, 59, 999);
+                
+                const dayContacts = scheduledContacts.filter(contact => {
+                    const contactDate = new Date(contact.date);
+                    return contactDate >= date && contactDate <= endDate && !contact.completed;
+                });
+                
+                weekDays.push({
+                    date: date,
+                    contacts: dayContacts,
+                    isToday: i === 0
+                });
+            }
+            
+            container.innerHTML = weekDays.map(day => {
+                const dateStr = day.date.toLocaleDateString('es-MX', { 
+                    weekday: 'short', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+                const bgColor = day.isToday ? 'bg-yellow-50 border-yellow-300' : 'bg-gray-50';
+                
+                return `
+                    <div class="p-3 rounded-lg ${bgColor} border">
+                        <div class="font-medium ${day.isToday ? 'text-yellow-700' : 'text-gray-700'}">
+                            ${day.isToday ? '📅 Hoy - ' : ''}${dateStr}
+                        </div>
+                        <div class="text-sm mt-1">
+                            ${day.contacts.length > 0 
+                                ? `<span class="text-[#8D6E63] font-medium">${day.contacts.length} contacto(s)</span>`
+                                : '<span class="text-gray-400">Sin contactos</span>'
+                            }
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Contact management functions
+        window.completeContact = (id) => {
+            const contact = scheduledContacts.find(c => c.id === id);
+            if (contact) {
+                // Marcar como completado
+                database.ref(`scheduledContacts/${id}/completed`).set(true);
+                
+                // Crear una interacción automáticamente
+                const newInteraction = {
+                    id: Date.now(),
+                    clientId: contact.clientId,
+                    type: contact.type,
+                    notes: `Contacto programado completado. ${contact.notes || ''}`,
+                    date: new Date().toISOString()
+                };
+                saveToFirebase('interactions', newInteraction);
+                showNotification('✅ Contacto marcado como completado');
+            }
+        };
+
+        window.deleteContact = (id) => {
+            if (confirm('¿Eliminar este contacto programado?')) {
+                database.ref(`scheduledContacts/${id}`).remove();
+                showNotification('✅ Contacto eliminado');
+            }
+        };
 
         // Initialize map
         function initMap() {
@@ -716,6 +1062,27 @@
                 interactionModal.classList.remove('show');
                 e.target.reset();
             });
+
+            // Schedule contact form
+            document.getElementById('schedule-contact-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const scheduledContact = {
+                    id: Date.now(),
+                    clientId: parseInt(document.getElementById('schedule-client').value),
+                    date: document.getElementById('schedule-date').value,
+                    type: document.getElementById('schedule-type').value,
+                    notes: document.getElementById('schedule-notes').value,
+                    completed: false
+                };
+                saveToFirebase('scheduledContacts', scheduledContact);
+                e.target.reset();
+                showNotification('✅ Contacto programado correctamente');
+                
+                // Establecer fecha mínima como ahora
+                const now = new Date();
+                document.getElementById('schedule-date').min = now.toISOString().slice(0, 16);
+                document.getElementById('schedule-date').value = now.toISOString().slice(0, 16);
+            });
         }
 
         function resetClientForm() {
@@ -780,6 +1147,14 @@
                     renderClients();
                 });
             });
+            
+            // Set minimum date for scheduling
+            const now = new Date();
+            const scheduleDate = document.getElementById('schedule-date');
+            if (scheduleDate) {
+                scheduleDate.min = now.toISOString().slice(0, 16);
+                scheduleDate.value = now.toISOString().slice(0, 16);
+            }
             
             setTimeout(() => {
                 document.getElementById('loading-overlay').style.display = 'none';
