@@ -48,6 +48,7 @@
             z-index: 50;
             animation: slideInRight 0.5s ease-out;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            max-width: 300px;
         }
         
         .glass-card {
@@ -67,6 +68,10 @@
             transition: all 0.3s ease;
         }
         
+        .filter-btn {
+            transition: all 0.3s ease;
+        }
+        
         .modal {
             transition: opacity 0.3s ease;
             backdrop-filter: blur(5px);
@@ -75,6 +80,11 @@
         .modal.show {
             opacity: 1;
             pointer-events: auto;
+        }
+        
+        .custom-div-icon {
+            background: transparent;
+            border: none;
         }
     </style>
 </head>
@@ -166,6 +176,13 @@
             <h2 class="text-3xl font-bold text-[#8D6E63] mb-8 text-center">Gestión de Clientes</h2>
             <button id="add-client-btn" class="btn-primary text-white px-6 py-3 rounded-full mb-6">➕ Añadir Cliente</button>
             
+            <div class="flex gap-2 mb-6 justify-center">
+                <button class="filter-btn active bg-[#8D6E63] text-white px-4 py-2 rounded-full" data-filter="all">Todos</button>
+                <button class="filter-btn bg-gray-200 px-4 py-2 rounded-full" data-filter="Alta">🟢 Alta</button>
+                <button class="filter-btn bg-gray-200 px-4 py-2 rounded-full" data-filter="Media">🟡 Media</button>
+                <button class="filter-btn bg-gray-200 px-4 py-2 rounded-full" data-filter="Baja">🔴 Baja</button>
+            </div>
+            
             <div id="client-grid" class="grid md:grid-cols-3 gap-6">
                 <!-- Client cards will be rendered here -->
             </div>
@@ -222,11 +239,37 @@
                     <option value="Abarrotes">🏪 Abarrotes</option>
                     <option value="Otros">❓ Otros</option>
                 </select>
+                <select id="client-priority" class="w-full p-3 border rounded-lg" required>
+                    <option value="">Selecciona prioridad</option>
+                    <option value="Alta">🟢 Alta</option>
+                    <option value="Media">🟡 Media</option>
+                    <option value="Baja">🔴 Baja</option>
+                </select>
+                <button type="button" id="select-location-btn" class="w-full btn-primary text-white p-3 rounded-lg">
+                    📍 Seleccionar ubicación en el mapa
+                </button>
+                <div id="location-display" class="text-sm text-gray-600 text-center hidden">
+                    Ubicación seleccionada: <span id="coords-display"></span>
+                </div>
+                <input type="hidden" id="client-lat">
+                <input type="hidden" id="client-lng">
                 <div class="flex gap-4">
                     <button type="submit" class="btn-primary text-white px-6 py-2 rounded-full flex-1">Guardar</button>
                     <button type="button" id="cancel-client" class="bg-gray-300 px-6 py-2 rounded-full flex-1">Cancelar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Location Selector Modal -->
+    <div id="location-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl p-4">
+            <h3 class="text-xl font-bold text-[#8D6E63] mb-4">Selecciona la ubicación en el mapa</h3>
+            <div id="location-map" style="height: 400px;" class="rounded-lg"></div>
+            <div class="flex gap-4 mt-4">
+                <button id="confirm-location" class="btn-primary text-white px-6 py-2 rounded-full flex-1">Confirmar ubicación</button>
+                <button id="cancel-location" class="bg-gray-300 px-6 py-2 rounded-full flex-1">Cancelar</button>
+            </div>
         </div>
     </div>
 
@@ -286,12 +329,17 @@
         let sales = [];
         let interactions = [];
         let mapInstance = null;
+        let locationMapInstance = null;
+        let locationMarker = null;
+        let selectedLocation = null;
+        let currentFilter = 'all';
 
         // Utility functions
         function showNotification(message, type = 'success') {
             const container = document.getElementById('notification-container');
             const notification = document.createElement('div');
-            notification.className = `notification ${type} p-4 rounded-lg bg-white shadow-lg`;
+            const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-yellow-500';
+            notification.className = `notification ${bgColor} text-white p-4 rounded-lg shadow-lg`;
             notification.innerHTML = `<p class="font-medium">${message}</p>`;
             container.appendChild(notification);
             setTimeout(() => notification.remove(), 3000);
@@ -299,6 +347,24 @@
 
         function formatCurrency(amount) {
             return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
+        }
+
+        function getPriorityEmoji(priority) {
+            switch(priority) {
+                case 'Alta': return '🟢';
+                case 'Media': return '🟡';
+                case 'Baja': return '🔴';
+                default: return '⚪';
+            }
+        }
+
+        function getPriorityColor(priority) {
+            switch(priority) {
+                case 'Alta': return 'bg-green-100 text-green-700';
+                case 'Media': return 'bg-yellow-100 text-yellow-700';
+                case 'Baja': return 'bg-red-100 text-red-700';
+                default: return 'bg-gray-100 text-gray-700';
+            }
         }
 
         // Initialize Firebase
@@ -318,17 +384,20 @@
         // Setup realtime sync
         function setupRealtimeSync() {
             database.ref('clients').on('value', (snapshot) => {
-                clients = snapshot.val() ? Object.values(snapshot.val()) : [];
+                const data = snapshot.val();
+                clients = data ? Object.keys(data).map(key => ({ ...data[key], id: parseInt(key) })) : [];
                 updateUI();
             });
 
             database.ref('sales').on('value', (snapshot) => {
-                sales = snapshot.val() ? Object.values(snapshot.val()) : [];
+                const data = snapshot.val();
+                sales = data ? Object.keys(data).map(key => ({ ...data[key], id: parseInt(key) })) : [];
                 updateUI();
             });
 
             database.ref('interactions').on('value', (snapshot) => {
-                interactions = snapshot.val() ? Object.values(snapshot.val()) : [];
+                const data = snapshot.val();
+                interactions = data ? Object.keys(data).map(key => ({ ...data[key], id: parseInt(key) })) : [];
                 updateUI();
             });
         }
@@ -404,17 +473,28 @@
             });
         }
 
-        // Render clients
+        // Render clients with filter
         function renderClients() {
             const grid = document.getElementById('client-grid');
-            grid.innerHTML = clients.map(client => `
+            const filteredClients = currentFilter === 'all' 
+                ? clients 
+                : clients.filter(c => c.priority === currentFilter);
+            
+            grid.innerHTML = filteredClients.map(client => `
                 <div class="glass-card p-6 rounded-xl">
-                    <h3 class="font-bold text-lg mb-2">${client.name}</h3>
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="font-bold text-lg">${client.name}</h3>
+                        <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)}">
+                            ${getPriorityEmoji(client.priority)} ${client.priority || 'Sin prioridad'}
+                        </span>
+                    </div>
                     <p class="text-gray-600">${client.location}</p>
-                    <p class="text-sm text-[#8D6E63]">${client.category}</p>
-                    <button onclick="deleteClient(${client.id})" class="text-red-500 text-sm mt-2">Eliminar</button>
+                    <p class="text-sm text-[#8D6E63] mb-3">${client.category}</p>
+                    <button onclick="deleteClient(${client.id})" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600">
+                        🗑️ Eliminar
+                    </button>
                 </div>
-            `).join('');
+            `).join('') || '<p class="text-center text-gray-600">No hay clientes en esta categoría</p>';
         }
 
         // Render sales
@@ -460,11 +540,36 @@
             });
             clients.forEach(client => {
                 if (client.lat && client.lng) {
-                    L.marker([client.lat, client.lng])
-                        .bindPopup(`<b>${client.name}</b><br>${client.category}`)
+                    const icon = L.divIcon({
+                        html: `<div class="text-2xl">${getPriorityEmoji(client.priority)}</div>`,
+                        className: 'custom-div-icon',
+                        iconSize: [30, 30]
+                    });
+                    L.marker([client.lat, client.lng], { icon })
+                        .bindPopup(`
+                            <b>${client.name}</b><br>
+                            ${client.category}<br>
+                            <span class="text-sm">Prioridad: ${client.priority || 'Sin definir'}</span>
+                        `)
                         .addTo(mapInstance);
                 }
             });
+        }
+
+        // Initialize location selector map
+        function initLocationMap() {
+            if (!locationMapInstance) {
+                locationMapInstance = L.map('location-map').setView([16.7516, -93.1029], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(locationMapInstance);
+                
+                locationMapInstance.on('click', (e) => {
+                    const { lat, lng } = e.latlng;
+                    if (locationMarker) locationMapInstance.removeLayer(locationMarker);
+                    locationMarker = L.marker([lat, lng]).addTo(locationMapInstance);
+                    selectedLocation = { lat, lng };
+                });
+            }
+            setTimeout(() => locationMapInstance.invalidateSize(), 100);
         }
 
         // Save to Firebase
@@ -475,10 +580,12 @@
                 .catch(error => showNotification('❌ Error al guardar', 'error'));
         }
 
-        // Delete functions
+        // Delete client
         window.deleteClient = (id) => {
-            if (confirm('¿Eliminar cliente?')) {
-                database.ref(`clients/${id}`).remove();
+            if (confirm('¿Estás seguro de eliminar este cliente?')) {
+                database.ref(`clients/${id}`).remove()
+                    .then(() => showNotification('✅ Cliente eliminado'))
+                    .catch(error => showNotification('❌ Error al eliminar', 'error'));
             }
         };
 
@@ -506,11 +613,37 @@
         function setupModals() {
             // Client modal
             const clientModal = document.getElementById('add-client-modal');
+            const locationModal = document.getElementById('location-modal');
+            
             document.getElementById('add-client-btn').addEventListener('click', () => {
                 clientModal.classList.add('show');
             });
+            
             document.getElementById('cancel-client').addEventListener('click', () => {
                 clientModal.classList.remove('show');
+                resetClientForm();
+            });
+
+            // Location selector
+            document.getElementById('select-location-btn').addEventListener('click', () => {
+                locationModal.classList.add('show');
+                initLocationMap();
+            });
+
+            document.getElementById('confirm-location').addEventListener('click', () => {
+                if (selectedLocation) {
+                    document.getElementById('client-lat').value = selectedLocation.lat;
+                    document.getElementById('client-lng').value = selectedLocation.lng;
+                    document.getElementById('coords-display').textContent = 
+                        `${selectedLocation.lat.toFixed(4)}, ${selectedLocation.lng.toFixed(4)}`;
+                    document.getElementById('location-display').classList.remove('hidden');
+                    locationModal.classList.remove('show');
+                    showNotification('📍 Ubicación seleccionada');
+                }
+            });
+
+            document.getElementById('cancel-location').addEventListener('click', () => {
+                locationModal.classList.remove('show');
             });
 
             // Sale modal
@@ -534,17 +667,26 @@
             // Forms
             document.getElementById('add-client-form').addEventListener('submit', (e) => {
                 e.preventDefault();
+                const lat = parseFloat(document.getElementById('client-lat').value);
+                const lng = parseFloat(document.getElementById('client-lng').value);
+                
                 const newClient = {
                     id: Date.now(),
                     name: document.getElementById('client-name').value,
                     location: document.getElementById('client-location').value,
                     category: document.getElementById('client-category').value,
-                    lat: 16.7516 + (Math.random() - 0.5) * 0.05,
-                    lng: -93.1029 + (Math.random() - 0.5) * 0.05
+                    priority: document.getElementById('client-priority').value,
+                    lat: lat || 16.7516 + (Math.random() - 0.5) * 0.05,
+                    lng: lng || -93.1029 + (Math.random() - 0.5) * 0.05
                 };
+                
+                if (!lat || !lng) {
+                    showNotification('⚠️ Ubicación asignada automáticamente', 'warning');
+                }
+                
                 saveToFirebase('clients', newClient);
                 clientModal.classList.remove('show');
-                e.target.reset();
+                resetClientForm();
             });
 
             document.getElementById('add-sale-form').addEventListener('submit', (e) => {
@@ -576,6 +718,18 @@
             });
         }
 
+        function resetClientForm() {
+            document.getElementById('add-client-form').reset();
+            document.getElementById('location-display').classList.add('hidden');
+            document.getElementById('client-lat').value = '';
+            document.getElementById('client-lng').value = '';
+            selectedLocation = null;
+            if (locationMarker && locationMapInstance) {
+                locationMapInstance.removeLayer(locationMarker);
+                locationMarker = null;
+            }
+        }
+
         // CRM functionality
         document.getElementById('crm-client-select').addEventListener('change', (e) => {
             const clientId = parseInt(e.target.value);
@@ -589,6 +743,9 @@
                     <p><strong>Nombre:</strong> ${client.name}</p>
                     <p><strong>Ubicación:</strong> ${client.location}</p>
                     <p><strong>Categoría:</strong> ${client.category}</p>
+                    <p><strong>Prioridad:</strong> <span class="px-2 py-1 rounded-full text-xs ${getPriorityColor(client.priority)}">
+                        ${getPriorityEmoji(client.priority)} ${client.priority}
+                    </span></p>
                 `;
                 
                 document.getElementById('interactions-list').innerHTML = clientInteractions.map(i => `
@@ -609,6 +766,21 @@
         document.addEventListener('DOMContentLoaded', () => {
             setupModals();
             initFirebase();
+            
+            // Setup filter buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentFilter = btn.dataset.filter;
+                    document.querySelectorAll('.filter-btn').forEach(b => {
+                        b.classList.remove('bg-[#8D6E63]', 'text-white');
+                        b.classList.add('bg-gray-200');
+                    });
+                    btn.classList.remove('bg-gray-200');
+                    btn.classList.add('bg-[#8D6E63]', 'text-white');
+                    renderClients();
+                });
+            });
+            
             setTimeout(() => {
                 document.getElementById('loading-overlay').style.display = 'none';
             }, 1000);
